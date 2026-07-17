@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install macOS universal targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run check:version
+      - run: npm test
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: npm run tauri -- build --target universal-apple-darwin
+      - name: Archive bundle
+        run: ditto -c -k --sequesterRsrc --keepParent src-tauri/target/universal-apple-darwin/release/bundle/macos/CC.app cc-macos-universal-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cc-macos-universal-unsigned
+          path: cc-macos-universal-unsigned.zip
+          if-no-files-found: error
+          retention-days: 90
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: cc-macos-universal-unsigned.zip
+          draft: true
+          generate_release_notes: true

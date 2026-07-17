@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a problem with CC.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for helping improve CC. Please remove any personal account details from screenshots or logs."
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: CC version
+      placeholder: "Example: v0.3.0"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      placeholder: "Describe the problem and what you expected instead."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open the app\n2. ...\n3. ..."
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: "Attach screenshots or logs if helpful. Remove tokens, account IDs, email addresses, and other private data first."

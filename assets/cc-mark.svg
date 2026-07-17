@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="cc-blue" x1="18" y1="18" x2="78" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8BE7FF"/>
+      <stop offset=".38" stop-color="#278CFF"/>
+      <stop offset="1" stop-color="#0A3C86"/>
+    </linearGradient>
+    <linearGradient id="cc-orange" x1="52" y1="15" x2="116" y2="111" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE1B3"/>
+      <stop offset=".38" stop-color="#E99567"/>
+      <stop offset="1" stop-color="#8B3E24"/>
+    </linearGradient>
+    <linearGradient id="cc-shine" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="white" stop-opacity=".9"/>
+      <stop offset=".52" stop-color="white" stop-opacity=".08"/>
+      <stop offset="1" stop-color="white" stop-opacity=".42"/>
+    </linearGradient>
+  </defs>
+  <path d="M59 28C47 19 29 22 20 36c-9 13-9 42 0 56 9 14 27 17 39 8" fill="none" stroke="url(#cc-blue)" stroke-width="17" stroke-linecap="round"/>
+  <path d="M108 28c-12-9-30-6-39 8-9 13-9 42 0 56 9 14 27 17 39 8" fill="none" stroke="url(#cc-orange)" stroke-width="17" stroke-linecap="round"/>
+  <path d="M56 31c-10-7-23-5-30 6" fill="none" stroke="url(#cc-shine)" stroke-width="3" stroke-linecap="round" opacity=".74"/>
+  <path d="M105 31c-10-7-23-5-30 6" fill="none" stroke="url(#cc-shine)" stroke-width="3" stroke-linecap="round" opacity=".74"/>
+</svg>
