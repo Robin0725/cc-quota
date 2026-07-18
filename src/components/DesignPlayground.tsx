@@ -6,16 +6,13 @@ import { QuotaDetails, QuotaOrb, type ProviderDescriptorMap } from "./QuotaCard"
 
 const descriptors = mockProviderDescriptors();
 const descriptorMap: ProviderDescriptorMap = Object.fromEntries(descriptors.map((item) => [item.id, item]));
-const [codex, claude] = mockProviderSnapshots();
+const [codex] = mockProviderSnapshots();
 
 const weeklyCodex: ProviderSnapshot = { ...codex, shortWindow: null, weeklyWindow: { ...codex.weeklyWindow!, remainingPercent: 42 } };
 
-// The expanded panel had no preview mode, which is how a misplaced per-model row reached a build.
-// Fable shares the account weekly's reset instant, so it is given the same resetsAt here.
-const claudeWithScoped: ProviderSnapshot = {
-  ...claude,
-  scopedWindows: [{ label: "Fable", remainingPercent: 75, resetsAt: claude.weeklyWindow!.resetsAt }],
-};
+// The panel preview shows every mock provider, Claude's scoped `Fable` bucket included, so the
+// tallest layout the panel has to survive is the one on screen by default.
+const panelSnapshots = mockProviderSnapshots();
 
 // Modes are generated from the registry, so a new provider shows up in the playground switcher
 // without anyone remembering to add a case here.
@@ -41,7 +38,7 @@ export function DesignPlayground() {
   const screenshotMode = new URLSearchParams(window.location.search).has("shot");
   const snapshot = mode === "weekly" ? weeklyCodex : snapshotsByProvider.get(mode) ?? null;
   const preview = mode === "details"
-    ? <div className="design-panel-frame"><QuotaDetails snapshots={[codex, claudeWithScoped]} language="zh-CN" descriptors={descriptorMap} onDrag={() => undefined} onToggleExpanded={() => undefined} /></div>
+    ? <div className="design-panel-frame"><QuotaDetails snapshots={panelSnapshots} language="zh-CN" descriptors={descriptorMap} onDrag={() => undefined} onToggleExpanded={() => undefined} /></div>
     : <div className="design-orb-frame"><QuotaOrb snapshot={snapshot} language="zh-CN" descriptors={descriptorMap} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} /></div>;
 
   if (mode === "compare") {

@@ -260,22 +260,26 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
                   <div className={`detail-progress detail-progress--tier-${quotaTier(percent)}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
                     <i style={{ width: `${percent}%` }} />
                   </div>
-                  <div className="detail-meta">
-                    <span>{formatResetTime(selected.value.resetsAt, new Date(), activeLanguage)}</span>
-                    <span>{weeklyPercent === null ? labels.noWeekly : `${labels.weekly} ${weeklyPercent}%`}</span>
-                  </div>
-                  {(snapshot.scopedWindows ?? []).length > 0 ? (
-                    <div className="detail-scoped">
-                      {(snapshot.scopedWindows ?? []).map((scoped) => (
-                        <span key={scoped.label}>
-                          {scoped.label}{" "}
-                          <span className={`detail-scoped-value detail-scoped-value--${quotaTier(clampPercent(scoped.remainingPercent))}`}>
-                            {clampPercent(scoped.remainingPercent)}%
-                          </span>
-                        </span>
-                      ))}
+                  {/* Meta and scoped buckets share a wrapper so the tight three-card layout can fold
+                      them onto one line. They stay stacked at one and two providers. */}
+                  <div className="detail-footer">
+                    <div className="detail-meta">
+                      <span>{formatResetTime(selected.value.resetsAt, new Date(), activeLanguage)}</span>
+                      <span>{weeklyPercent === null ? labels.noWeekly : `${labels.weekly} ${weeklyPercent}%`}</span>
                     </div>
-                  ) : null}
+                    {(snapshot.scopedWindows ?? []).length > 0 ? (
+                      <div className="detail-scoped">
+                        {(snapshot.scopedWindows ?? []).map((scoped) => (
+                          <span key={scoped.label}>
+                            {scoped.label}{" "}
+                            <span className={`detail-scoped-value detail-scoped-value--${quotaTier(clampPercent(scoped.remainingPercent))}`}>
+                              {clampPercent(scoped.remainingPercent)}%
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </>
               ) : (
                 <p className="detail-unavailable">{snapshot.message ?? copy[activeLanguage].unavailableStatus}</p>

@@ -102,10 +102,12 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 
 .quota-details {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: calc(100% - 16px);
   height: calc(100% - 16px);
   margin: 8px;
-  padding: 18px;
+  padding: 13px 16px 15px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.66);
   border-radius: 32px;
@@ -125,10 +127,10 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
    With no descriptors yet the layer simply stays empty, so the panel reads neutral — it never
    falls back to the two colours that happened to ship first. */
 .details-glow { position: absolute; inset: -40%; z-index: -1; pointer-events: none; }
-.details-header { height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.details-header div { min-width: 0; display: flex; align-items: center; gap: 9px; }
-.details-header div > span { width: 27px; height: 22px; display: grid; place-items: center; border-radius: 8px; color: white; background: #263341; font-size: 9px; font-weight: 780; letter-spacing: 0.08em; }
-.details-header strong { font-size: 15px; font-weight: 690; letter-spacing: -0.02em; }
+.details-header { flex: 0 0 auto; height: 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 7px; }
+.details-header div { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.details-header div > span { width: 24px; height: 18px; display: grid; place-items: center; border-radius: 7px; color: white; background: #263341; font-size: 8px; font-weight: 780; letter-spacing: 0.08em; }
+.details-header strong { font-size: 13px; font-weight: 690; letter-spacing: -0.02em; }
 /* Implicit rows rather than `repeat(2, ...)`: the panel takes however many providers the registry
    reports, with no count baked into the stylesheet.
 
@@ -139,21 +141,38 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 
    Scrolling triggers on real overflow rather than a provider count: card height depends on content
    — whether there are scoped buckets and how many — not on how many providers exist. */
-.details-providers { height: calc(100% - 42px); display: grid; grid-auto-rows: minmax(min-content, 1fr); gap: 10px; overflow-y: auto; overscroll-behavior: contain; }
+/* Flex rather than `calc(100% - 42px)`: that 42 was the header's height plus its margin, copied by
+   hand, so every header tweak silently needed a second edit here. The list just takes what is left. */
+.details-providers { flex: 1 1 auto; min-height: 0; display: grid; grid-auto-rows: minmax(min-content, 1fr); gap: 10px; overflow-y: auto; overscroll-behavior: contain; }
 /* Deliberately no `overflow: hidden` here: with the row floor above, the card never needs to clip,
    and leaving the clip in place would only let a future overflow disappear quietly again. */
 .detail-provider { padding: 11px 13px 10px; border: 1px solid rgba(255, 255, 255, 0.68); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56); }
 .detail-provider { background: rgba(252, 253, 255, 0.9); }
 .detail-provider { background: linear-gradient(145deg, color-mix(in srgb, var(--provider-accent, #7d8894) 7%, rgba(255, 255, 255, 0.94)), color-mix(in srgb, var(--provider-accent, #7d8894) 22%, rgba(255, 255, 255, 0.85))); }
-/* Three providers get tighter rows so they usually fit the 320×320 panel without scrolling. This
-   is a comfort optimisation only — if the content still does not fit (extra scoped buckets, say),
-   the row floor above wins and the panel scrolls instead of trimming anything. */
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-provider { padding: 7px 11px 6px; }
+/* Three providers, scoped buckets included, fit the 320×320 panel without scrolling.
+ *
+ * The budget is exact: the list is 226px tall, so three rows plus two 8px gaps leave 70px a card,
+ * of which 12px goes to padding and borders. What follows spends the remaining 58px.
+ *
+ * The savings come from vertical rhythm, not from type size: leading is pinned to 1 instead of the
+ * browser's ~1.2 default, and the meta and scoped rows fold onto a single line — together that is
+ * most of the reduction. The small text stays at its usual 8px, and the percentage stays far and
+ * away the largest thing in the card, so the number is still what the eye lands on.
+ *
+ * This is a comfort optimisation, never a guarantee: if content grows past the budget (a provider
+ * reporting two scoped buckets, say) the `min-content` floor above still wins and the panel
+ * scrolls. Nothing here may be tightened to the point of relying on clipping. */
+.details-providers:has(> .detail-provider:nth-child(3)) { gap: 8px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-provider { padding: 6px 11px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-provider-heading { line-height: 1; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-primary { margin-top: 3px; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong { font-size: 20px; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong small { font-size: 9px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary > span { line-height: 1; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-progress { margin-top: 5px; }
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-meta { margin-top: 4px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-footer { display: flex; align-items: baseline; gap: 0 8px; margin-top: 4px; line-height: 1.1; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-meta { flex: 1 1 auto; min-width: 0; margin-top: 0; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-scoped { flex: 0 0 auto; margin-top: 0; }
 .detail-provider-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .detail-provider-heading div { display: flex; align-items: center; gap: 6px; }
 .detail-provider-heading i { width: 7px; height: 7px; border-radius: 50%; background: var(--provider-accent, #7d8894); box-shadow: 0 0 0 3px color-mix(in srgb, var(--provider-accent, #7d8894) 10%, transparent); }

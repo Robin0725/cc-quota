@@ -101,7 +101,7 @@ const mockDescriptors: ProviderDescriptorDto[] = [
   { id: "kimicode", displayName: "Kimi Code", abbreviation: "KM", accentHex: "#7c5cd6" },
 ];
 
-type MockSnapshotSeed = Pick<ProviderSnapshot, "provider" | "displayName" | "plan" | "resetCredits"> & {
+type MockSnapshotSeed = Pick<ProviderSnapshot, "provider" | "displayName" | "plan" | "resetCredits" | "scopedWindows"> & {
   shortPercent: number;
   shortResetMinutes: number;
   weeklyPercent: number;
@@ -111,7 +111,10 @@ type MockSnapshotSeed = Pick<ProviderSnapshot, "provider" | "displayName" | "pla
 
 const mockSnapshotSeeds: MockSnapshotSeed[] = [
   { provider: "codex", displayName: "CODEX", plan: "PRO", shortPercent: 74, shortResetMinutes: 78, weeklyPercent: 42, weeklyResetDays: 3.2, resetCredits: 1, resetCreditExpiresInDays: [9] },
-  { provider: "claude", displayName: "CLAUDE", plan: "MAX", shortPercent: 94, shortResetMinutes: 112, weeklyPercent: 86, weeklyResetDays: 4.5, resetCredits: null },
+  // Claude really does report a per-model bucket in production. The mock carried none, so the
+  // tallest card the layout has to survive never appeared during development — which is how a row
+  // that clipped exactly this content reached a build.
+  { provider: "claude", displayName: "CLAUDE", plan: "MAX", shortPercent: 94, shortResetMinutes: 112, weeklyPercent: 86, weeklyResetDays: 4.5, resetCredits: null, scopedWindows: [{ label: "Fable", remainingPercent: 75, resetsAt: "2026-07-21T03:00:00Z" }] },
   { provider: "kimicode", displayName: "KIMI CODE", plan: "INTERMEDIATE", shortPercent: 99, shortResetMinutes: 240, weeklyPercent: 100, weeklyResetDays: 6.1, resetCredits: null },
 ];
 
@@ -124,6 +127,7 @@ function mockSnapshot(seed: MockSnapshotSeed): ProviderSnapshot {
     shortWindow: { remainingPercent: seed.shortPercent, resetsAt: new Date(now + seed.shortResetMinutes * 60_000).toISOString(), windowSeconds: 18_000 },
     weeklyWindow: { remainingPercent: seed.weeklyPercent, resetsAt: new Date(now + seed.weeklyResetDays * 86_400_000).toISOString(), windowSeconds: 604_800 },
     resetCredits: seed.resetCredits,
+    scopedWindows: seed.scopedWindows,
     resetCreditExpiresAt: (seed.resetCreditExpiresInDays ?? []).map((days) => new Date(now + days * 86_400_000).toISOString()),
     updatedAt: new Date(now).toISOString(),
     status: "ok",
