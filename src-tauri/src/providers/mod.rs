@@ -5,6 +5,7 @@
 
 pub mod claude;
 pub mod codex;
+pub mod kimicode;
 
 use std::{
     sync::Mutex,
@@ -56,9 +57,10 @@ pub trait ProviderAdapter: Send + Sync {
 
 static CODEX: codex::CodexAdapter = codex::CodexAdapter;
 static CLAUDE: claude::ClaudeAdapter = claude::ClaudeAdapter;
+static KIMICODE: kimicode::KimiCodeAdapter = kimicode::KimiCodeAdapter;
 
 /// Every known provider. Order is the UI order.
-static REGISTRY: &[&(dyn ProviderAdapter + 'static)] = &[&CODEX, &CLAUDE];
+static REGISTRY: &[&(dyn ProviderAdapter + 'static)] = &[&CODEX, &CLAUDE, &KIMICODE];
 
 pub fn all() -> &'static [&'static dyn ProviderAdapter] {
     REGISTRY

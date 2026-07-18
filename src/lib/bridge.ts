@@ -98,6 +98,7 @@ export function resolveCompactAnchor(
 const mockDescriptors: ProviderDescriptorDto[] = [
   { id: "codex", displayName: "Codex", abbreviation: "CX", accentHex: "#2f6fed" },
   { id: "claude", displayName: "Claude", abbreviation: "CL", accentHex: "#b85a3a" },
+  { id: "kimicode", displayName: "Kimi Code", abbreviation: "KM", accentHex: "#7c5cd6" },
 ];
 
 type MockSnapshotSeed = Pick<ProviderSnapshot, "provider" | "displayName" | "plan" | "resetCredits"> & {
@@ -111,6 +112,7 @@ type MockSnapshotSeed = Pick<ProviderSnapshot, "provider" | "displayName" | "pla
 const mockSnapshotSeeds: MockSnapshotSeed[] = [
   { provider: "codex", displayName: "CODEX", plan: "PRO", shortPercent: 74, shortResetMinutes: 78, weeklyPercent: 42, weeklyResetDays: 3.2, resetCredits: 1, resetCreditExpiresInDays: [9] },
   { provider: "claude", displayName: "CLAUDE", plan: "MAX", shortPercent: 94, shortResetMinutes: 112, weeklyPercent: 86, weeklyResetDays: 4.5, resetCredits: null },
+  { provider: "kimicode", displayName: "KIMI CODE", plan: "INTERMEDIATE", shortPercent: 99, shortResetMinutes: 240, weeklyPercent: 100, weeklyResetDays: 6.1, resetCredits: null },
 ];
 
 function mockSnapshot(seed: MockSnapshotSeed): ProviderSnapshot {
