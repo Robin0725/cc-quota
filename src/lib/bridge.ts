@@ -15,6 +15,7 @@ type LogicalPoint = { x: number; y: number };
 type LogicalRect = LogicalPoint & { width: number; height: number };
 
 let expandedWidgetPlacement: WidgetPlacement = { vertical: "below", horizontal: "right" };
+let expandRestore: ExpandRestore | null = null;
 
 export function calculateExpandedWidgetLayout(compact: LogicalRect, workArea?: LogicalRect): {
   position: LogicalPoint;
@@ -66,6 +67,28 @@ export function calculateCompactWidgetAnchor(expanded: LogicalPoint, placement: 
     x: expanded.x + (placement.horizontal === "left" ? expandedPanelSize.width - compactWidgetSize.width : 0),
     y: expanded.y + (placement.vertical === "above" ? expandedPanelSize.height + expandedPanelGap : 0),
   };
+}
+
+export type ExpandRestore = { expandedOrigin: LogicalPoint; compactAnchor: LogicalPoint };
+
+/**
+ * Where the orb should land when the panel collapses.
+ *
+ * The geometric anchor assumes the expanded window still sits exactly where the expand step put
+ * it. That holds unless the panel had to be pushed on-screen — a work area too short to fit it —
+ * in which case the orb would keep the shifted position instead of returning to the spot the user
+ * chose. Restoring the remembered position fixes that, but only while the window has not moved:
+ * once it is dragged, the remembered spot is stale and the geometry wins.
+ */
+export function resolveCompactAnchor(
+  expandedPosition: LogicalPoint,
+  placement: WidgetPlacement,
+  restore: ExpandRestore | null,
+): LogicalPoint {
+  const unmoved = restore !== null
+    && Math.round(restore.expandedOrigin.x) === Math.round(expandedPosition.x)
+    && Math.round(restore.expandedOrigin.y) === Math.round(expandedPosition.y);
+  return unmoved ? restore.compactAnchor : calculateCompactWidgetAnchor(expandedPosition, placement);
 }
 
 const mockCodexSnapshot: ProviderSnapshot = {
@@ -139,7 +162,7 @@ export async function startDragging(): Promise<void> {
 }
 
 export async function setWidgetExpanded(expanded: boolean): Promise<WidgetPlacement> {
-  if (!isTauri()) return { vertical: "below", horizontal: "left" };
+  if (!isTauri()) return { vertical: "below", horizontal: "right" };
   const { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } = await import("@tauri-apps/api/window");
   const appWindow = getCurrentWindow();
   const [physicalPosition, monitor] = await Promise.all([
@@ -160,12 +183,17 @@ export async function setWidgetExpanded(expanded: boolean): Promise<WidgetPlacem
       workArea,
     );
     expandedWidgetPlacement = layout.placement;
-    await appWindow.setPosition(new LogicalPosition(Math.round(layout.position.x), Math.round(layout.position.y)));
+    expandRestore = {
+      expandedOrigin: { x: Math.round(layout.position.x), y: Math.round(layout.position.y) },
+      compactAnchor: { x: position.x, y: position.y },
+    };
+    await appWindow.setPosition(new LogicalPosition(expandRestore.expandedOrigin.x, expandRestore.expandedOrigin.y));
     await appWindow.setSize(new LogicalSize(layout.size.width, layout.size.height));
     return layout.placement;
   }
 
-  let anchor = calculateCompactWidgetAnchor(position, expandedWidgetPlacement);
+  let anchor = resolveCompactAnchor(position, expandedWidgetPlacement, expandRestore);
+  expandRestore = null;
   if (monitor) {
     const workPosition = monitor.workArea.position.toLogical(scaleFactor);
     const workSize = monitor.workArea.size.toLogical(scaleFactor);
