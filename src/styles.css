@@ -82,7 +82,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .orb-empty span { font-size: 9px; font-weight: 760; letter-spacing: 0.14em; }
 .orb-empty strong { font-size: 24px; font-weight: 420; line-height: 1; }
 
-.quota-orb:focus-visible, .details-actions button:focus-visible { outline: 2px solid rgba(47, 111, 237, 0.76); outline-offset: 2px; }
+.quota-orb:focus-visible { outline: 2px solid rgba(47, 111, 237, 0.76); outline-offset: 2px; }
 .quota-orb:active, .quota-details:active { cursor: grabbing; }
 
 .expanded-widget { position: relative; width: 320px; height: 430px; }
@@ -129,11 +129,6 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .details-header div { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .details-header div > span { width: 27px; height: 22px; display: grid; place-items: center; border-radius: 8px; color: white; background: #263341; font-size: 9px; font-weight: 780; letter-spacing: 0.08em; }
 .details-header strong { font-size: 15px; font-weight: 690; letter-spacing: -0.02em; }
-.details-header small { color: rgba(23, 33, 44, 0.5); font-size: 8px; font-weight: 620; white-space: nowrap; }
-.details-header .details-actions { flex: 0 0 auto; gap: 7px; }
-.details-actions button { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(36, 51, 67, 0.1); border-radius: 10px; color: rgba(23, 33, 44, 0.62); background: rgba(255, 255, 255, 0.54); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74); cursor: pointer; }
-.details-actions button:hover { color: #17212c; background: rgba(255, 255, 255, 0.78); }
-.details-actions button span { transform: translateY(1px); font-size: 13px; line-height: 1; }
 .details-providers { height: calc(100% - 42px); display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .details-providers--single { grid-template-rows: minmax(0, 1fr); }
 .detail-provider { min-height: 0; padding: 11px 13px 10px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.68); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56); }

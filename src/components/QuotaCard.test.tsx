@@ -131,7 +131,8 @@ describe("floating widget interactions", () => {
     expect(screen.getByText("CODEX")).toBeTruthy();
     expect(screen.getByText("CLAUDE")).toBeTruthy();
     expect(screen.getAllByRole("meter").map((item) => item.getAttribute("aria-valuenow"))).toEqual(["84", "61"]);
-    expect(screen.getByRole("button", { name: "收起详情" })).toBeTruthy();
+    // The panel has no chrome of its own: collapsing is the orb's job, or Escape.
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("collapses the detail view with Escape", () => {

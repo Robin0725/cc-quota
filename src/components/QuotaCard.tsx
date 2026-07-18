@@ -143,7 +143,9 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
       aria-label={ariaLabel}
       aria-expanded={expanded}
       aria-controls="quota-details-panel"
-      data-cc-focus-target={expanded ? undefined : "true"}
+      // The panel has no collapse button, so the orb stays the focus target in both states: it is
+      // what toggles the panel, and Escape is handled globally while expanded.
+      data-cc-focus-target="true"
     >
       {available ? (
         <section className="orb-metric" role="progressbar" aria-label={ariaLabel} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
@@ -168,8 +170,8 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
   const activeLanguage = normalizeLanguage(language);
   const dragInteractions = useDrag(onDrag);
   const labels = activeLanguage === "en"
-    ? { title: "Quota details", collapse: "Collapse details", drag: "Drag panel to move", short: "5-hour", weekly: "Weekly", noWeekly: "No weekly window", loading: "Reading quota" }
-    : { title: "额度详情", collapse: "收起详情", drag: "拖动面板可移动", short: "5 小时", weekly: "周额度", noWeekly: "未返回周额度", loading: "正在读取额度" };
+    ? { title: "Quota details", short: "5-hour", weekly: "Weekly", noWeekly: "No weekly window", loading: "Reading quota" }
+    : { title: "额度详情", short: "5 小时", weekly: "周额度", noWeekly: "未返回周额度", loading: "正在读取额度" };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -190,12 +192,6 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
     >
       <header className="details-header">
         <div><span>CC</span><strong>{labels.title}</strong></div>
-        <div className="details-actions">
-          <small>{labels.drag}</small>
-          <button type="button" onClick={onToggleExpanded} aria-label={labels.collapse} data-cc-focus-target="true">
-            <span aria-hidden="true">⌃</span>
-          </button>
-        </div>
       </header>
       <div className={`details-providers${snapshots.length === 1 ? " details-providers--single" : ""}`}>
         {snapshots.length > 0 ? snapshots.slice(0, 2).map((snapshot) => {

@@ -1,57 +1,51 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<!--
+  CC app icon master, 1024pt. Two interlocking C's: blue for Codex, orange for Claude.
+
+  The previous version used the same two letters but with thin strokes set close together, which
+  merged into an unreadable smear at 16px — the size Finder lists, Cmd-Tab and Spotlight actually
+  render. The fix is weight and separation, not a new idea: the stroke is now ~62% of the letter
+  radius, and the orange C is lifted off the blue one by a dark relief stroke so the overlap reads
+  as depth rather than as a muddy join.
+
+  Deliberately flat: no fine outlines, no multi-layer gradients, no small ornament. Those survive
+  only at 512pt and turn into noise everywhere else.
+
+  Colours track the tray palette in src-tauri/src/lib.rs closely enough to read as the same
+  product, brightened a little to hold up against the near-black shell.
+
+  The shell keeps a 52pt inset. Filling the full canvas would make CC sit visibly larger than its
+  neighbours in the Dock.
+
+  Regenerate the PNG set after editing (render this file to a 1024x1024 PNG first):
+    npm run tauri -- icon <that PNG>
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="shell" x1="116" y1="74" x2="904" y2="946" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#14283C"/>
-      <stop offset=".48" stop-color="#07111D"/>
-      <stop offset="1" stop-color="#02070D"/>
+    <linearGradient id="bg" x1="116" y1="74" x2="904" y2="946" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12141A"/><stop offset=".5" stop-color="#0A0B0F"/><stop offset="1" stop-color="#050608"/>
     </linearGradient>
-    <radialGradient id="blue-haze" cx="0" cy="0" r="1" gradientTransform="translate(282 292) rotate(58) scale(483)">
-      <stop stop-color="#2C9BFF" stop-opacity=".3"/>
-      <stop offset="1" stop-color="#2C9BFF" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="orange-haze" cx="0" cy="0" r="1" gradientTransform="translate(767 752) rotate(-126) scale(448)">
-      <stop stop-color="#E99567" stop-opacity=".28"/>
-      <stop offset="1" stop-color="#E99567" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="blue" x1="177" y1="180" x2="521" y2="838" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#9EEBFF"/>
-      <stop offset=".28" stop-color="#4CC5FF"/>
-      <stop offset=".57" stop-color="#1677EA"/>
-      <stop offset="1" stop-color="#092E6B"/>
+    <linearGradient id="rake" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".10"/>
+      <stop offset=".24" stop-color="#fff" stop-opacity=".015"/>
+      <stop offset=".46" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="orange" x1="508" y1="172" x2="854" y2="845" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFE6BE"/>
-      <stop offset=".3" stop-color="#F4AF76"/>
-      <stop offset=".58" stop-color="#D97757"/>
-      <stop offset="1" stop-color="#71301D"/>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#5C9BFF"/><stop offset="1" stop-color="#2563E0"/>
     </linearGradient>
-    <linearGradient id="silk-blue" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="white" stop-opacity=".92"/>
-      <stop offset=".35" stop-color="white" stop-opacity=".08"/>
-      <stop offset=".65" stop-color="#A8EFFF" stop-opacity=".48"/>
-      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    <linearGradient id="orange" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#E08A5F"/><stop offset="1" stop-color="#B0512F"/>
     </linearGradient>
-    <linearGradient id="silk-orange" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="white" stop-opacity=".9"/>
-      <stop offset=".36" stop-color="white" stop-opacity=".06"/>
-      <stop offset=".68" stop-color="#FFE0B2" stop-opacity=".5"/>
-      <stop offset="1" stop-color="white" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="18"/>
-    </filter>
   </defs>
-  <rect x="52" y="52" width="920" height="920" rx="228" fill="url(#shell)"/>
-  <rect x="70" y="70" width="884" height="884" rx="210" fill="none" stroke="white" stroke-opacity=".13" stroke-width="4"/>
-  <rect x="91" y="91" width="842" height="842" rx="193" fill="none" stroke="white" stroke-opacity=".05" stroke-width="2"/>
-  <rect x="52" y="52" width="920" height="920" rx="228" fill="url(#blue-haze)"/>
-  <rect x="52" y="52" width="920" height="920" rx="228" fill="url(#orange-haze)"/>
-  <path d="M467 273c-75-58-190-41-246 42-56 84-56 310 0 394 56 83 171 100 246 42" fill="none" stroke="#006DFF" stroke-opacity=".22" stroke-width="114" stroke-linecap="round" filter="url(#shadow)"/>
-  <path d="M808 273c-75-58-190-41-246 42-56 84-56 310 0 394 56 83 171 100 246 42" fill="none" stroke="#D97757" stroke-opacity=".2" stroke-width="114" stroke-linecap="round" filter="url(#shadow)"/>
-  <path d="M467 273c-75-58-190-41-246 42-56 84-56 310 0 394 56 83 171 100 246 42" fill="none" stroke="url(#blue)" stroke-width="104" stroke-linecap="round"/>
-  <path d="M808 273c-75-58-190-41-246 42-56 84-56 310 0 394 56 83 171 100 246 42" fill="none" stroke="url(#orange)" stroke-width="104" stroke-linecap="round"/>
-  <path d="M450 284c-66-46-159-25-199 44" fill="none" stroke="url(#silk-blue)" stroke-width="18" stroke-linecap="round"/>
-  <path d="M791 284c-66-46-159-25-199 44" fill="none" stroke="url(#silk-orange)" stroke-width="18" stroke-linecap="round"/>
-  <circle cx="500" cy="512" r="10" fill="#72D8FF" opacity=".7"/>
-  <circle cx="530" cy="512" r="10" fill="#EEA06E" opacity=".7"/>
+
+  <rect x="52" y="52" width="920" height="920" rx="228" fill="url(#bg)"/>
+  <rect x="52" y="52" width="920" height="920" rx="228" fill="url(#rake)"/>
+
+  <!-- Codex -->
+  <path d="M 508.0 369.5 A 168 168 0 1 0 508.0 654.5" fill="none" stroke="url(#blue)" stroke-width="104" stroke-linecap="round"/>
+  <!-- Relief: cuts a shadow gap so the orange C sits in front instead of blending. -->
+  <path d="M 773.0 369.5 A 168 168 0 1 0 773.0 654.5" fill="none" stroke="#07080B" stroke-width="138" stroke-linecap="round"/>
+  <!-- Claude -->
+  <path d="M 773.0 369.5 A 168 168 0 1 0 773.0 654.5" fill="none" stroke="url(#orange)" stroke-width="104" stroke-linecap="round"/>
+
+  <rect x="53.5" y="53.5" width="917" height="917" rx="226.5" fill="none" stroke="#fff" stroke-opacity=".10" stroke-width="3"/>
 </svg>
