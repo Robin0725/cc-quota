@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use serde_json::Value;
 
 use crate::models::{ProviderSnapshot, UsageWindow};
@@ -49,19 +49,18 @@ impl ProviderAdapter for KimiCodeAdapter {
 }
 
 const USAGE_URL: &str = "https://api.kimi.com/coding/v1/usages";
-const TOKEN_URL: &str = "https://auth.kimi.com/api/oauth/token";
-const CLIENT_ID: &str = "17e5f671-d194-4dfb-9706-5516cb48c098";
 const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 const MAX_CREDENTIAL_BYTES: u64 = 256 * 1024;
 const SHORT_WINDOW_SECONDS: u64 = 18_000;
 const WEEKLY_WINDOW_SECONDS: u64 = 604_800;
-/// Refresh slightly ahead of expiry so a token cannot lapse mid-request.
-const REFRESH_MARGIN_SECONDS: i64 = 60;
+/// Treat a token as spent slightly before its stated expiry so one cannot lapse mid-request.
+const EXPIRY_MARGIN_SECONDS: i64 = 60;
 const DISPLAY_NAME: &str = "KIMI CODE";
 
+/// Only the access token and its expiry are read. The refresh token in the same file is
+/// deliberately ignored — see [`access_token`].
 struct Credentials {
     access_token: String,
-    refresh_token: Option<String>,
     expires_at: Option<i64>,
 }
 
@@ -222,7 +221,6 @@ fn parse_credentials(raw: &str) -> Result<Credentials, &'static str> {
         .to_owned();
     Ok(Credentials {
         access_token,
-        refresh_token: text(&value, &["refresh_token", "refreshToken"]).map(str::to_owned),
         expires_at: integer(&value, &["expires_at", "expiresAt"]),
     })
 }
@@ -246,67 +244,32 @@ fn expiry_seconds(value: i64) -> i64 {
     }
 }
 
-fn needs_refresh(expires_at: Option<i64>, now: i64) -> bool {
-    expires_at.is_some_and(|value| expiry_seconds(value) - REFRESH_MARGIN_SECONDS <= now)
+fn is_expired(expires_at: Option<i64>, now: i64) -> bool {
+    expires_at.is_some_and(|value| expiry_seconds(value) - EXPIRY_MARGIN_SECONDS <= now)
 }
 
-/// Percent-encodes a form value. The refresh token is opaque, so it is escaped rather than
-/// interpolated raw into the body.
-fn form_encode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                (byte as char).to_string()
-            }
-            _ => format!("%{byte:02X}"),
-        })
-        .collect()
-}
-
-async fn refresh_access_token(
-    client: &reqwest::Client,
-    refresh_token: &str,
-) -> Result<String, &'static str> {
-    let body = format!(
-        "client_id={}&grant_type=refresh_token&refresh_token={}",
-        form_encode(CLIENT_ID),
-        form_encode(refresh_token)
-    );
-    let response = client
-        .post(TOKEN_URL)
-        .header(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/x-www-form-urlencoded"),
-        )
-        .header(ACCEPT, HeaderValue::from_static("application/json"))
-        .body(body)
-        .send()
-        .await
-        .map_err(|_| "Kimi Code login could not be refreshed.")?;
-    if !response.status().is_success() {
-        return Err("Kimi Code login expired. Please sign in again.");
+/// Reads the token the CLI last wrote. **This app never refreshes it**, on purpose:
+///
+/// * A Kimi access token lives fifteen minutes and the CLI renews it while the user works, so the
+///   file is current exactly when the quota number matters.
+/// * If the server rotates refresh tokens on use, refreshing here without writing the file back
+///   would invalidate the user's CLI login — and refreshing *and* writing would race the CLI for
+///   ownership of its own credentials. Neither risk buys anything beyond a live number for a user
+///   who is not using Kimi right now.
+///
+/// An expired token therefore takes the ordinary failure path; the last good reading is what the
+/// UI keeps showing until the CLI writes a fresh token.
+fn access_token(now: i64) -> Result<String, (&'static str, &'static str)> {
+    let path = credentials_path().ok_or(("signed_out", "Kimi Code login was not found."))?;
+    let credentials = load_credentials(&path).map_err(|message| ("signed_out", message))?;
+    if is_expired(credentials.expires_at, now) {
+        // Not a sign-out: the CLI renews this token itself, so the reading is merely stale.
+        return Err((
+            "unavailable",
+            "Kimi Code token has expired. It renews the next time the CLI runs.",
+        ));
     }
-    let value = limited_json(response)
-        .await
-        .map_err(|_| "Kimi Code login format has changed.")?;
-    // Deliberately not written back to disk: the CLI owns that file and two writers would race.
-    text(&value, &["access_token", "accessToken"])
-        .map(str::to_owned)
-        .ok_or("Kimi Code login expired. Please sign in again.")
-}
-
-async fn access_token(client: &reqwest::Client) -> Result<String, &'static str> {
-    let path = credentials_path().ok_or("Kimi Code login was not found.")?;
-    let credentials = load_credentials(&path)?;
-    if !needs_refresh(credentials.expires_at, chrono::Utc::now().timestamp()) {
-        return Ok(credentials.access_token);
-    }
-    let refresh_token = credentials
-        .refresh_token
-        .as_deref()
-        .ok_or("Kimi Code login expired. Please sign in again.")?;
-    refresh_access_token(client, refresh_token).await
+    Ok(credentials.access_token)
 }
 
 fn headers(token: &str) -> Result<HeaderMap, &'static str> {
@@ -355,9 +318,9 @@ fn failure(status: &str, message: &str) -> ProviderSnapshot {
 }
 
 pub async fn fetch_snapshot(client: &reqwest::Client) -> ProviderSnapshot {
-    let token = match access_token(client).await {
+    let token = match access_token(chrono::Utc::now().timestamp()) {
         Ok(value) => value,
-        Err(message) => return failure("signed_out", message),
+        Err((status, message)) => return failure(status, message),
     };
     let request_headers = match headers(&token) {
         Ok(value) => value,
@@ -502,16 +465,66 @@ mod tests {
     }
 
     #[test]
-    fn refreshes_only_when_the_token_is_at_or_near_expiry() {
+    fn counts_a_token_as_expired_at_or_near_its_stated_expiry() {
         let now = 1_800_000_000;
-        assert!(!needs_refresh(Some(now + 3_600), now));
-        assert!(needs_refresh(Some(now + 30), now));
-        assert!(needs_refresh(Some(now - 1), now));
+        assert!(!is_expired(Some(now + 3_600), now));
+        assert!(is_expired(Some(now + 30), now));
+        assert!(is_expired(Some(now - 1), now));
         // Milliseconds, as some CLIs write them, must not read as a distant future.
-        assert!(needs_refresh(Some((now - 1) * 1000), now));
-        assert!(!needs_refresh(Some((now + 3_600) * 1000), now));
+        assert!(is_expired(Some((now - 1) * 1000), now));
+        assert!(!is_expired(Some((now + 3_600) * 1000), now));
         // No expiry recorded: use the token and let a 401 decide.
-        assert!(!needs_refresh(None, now));
+        assert!(!is_expired(None, now));
+    }
+
+    /// The app must not participate in Kimi's auth lifecycle: an expired token is reported as a
+    /// plain failure, never traded in for a new one. Refreshing here could invalidate the user's
+    /// CLI login if the server rotates refresh tokens, and the CLI renews the file itself anyway.
+    #[test]
+    fn an_expired_token_fails_instead_of_being_refreshed() {
+        let directory = std::env::temp_dir().join("cc-quota-kimicode-expired");
+        fs::create_dir_all(directory.join("credentials")).unwrap();
+        let path = directory.join("credentials").join("kimi-code.json");
+        // A live-shaped file: fifteen minute lifetime, refresh token present and to be ignored.
+        fs::write(
+            &path,
+            r#"{"access_token":"fake-access","refresh_token":"fake-refresh","expires_at":1800000900,"expires_in":900,"token_type":"Bearer"}"#,
+        )
+        .unwrap();
+        std::env::set_var("KIMI_CODE_HOME", &directory);
+
+        // Inside the lifetime the stored token is used as-is.
+        assert_eq!(access_token(1_800_000_000).unwrap(), "fake-access");
+        // Past it, the call fails rather than reaching for the refresh token.
+        let (status, message) = access_token(1_800_001_000).unwrap_err();
+        assert_eq!(status, "unavailable");
+        assert!(!message.contains("fake"));
+
+        std::env::remove_var("KIMI_CODE_HOME");
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    /// The gateway in front of the usage endpoint answers with an HTML `504` under load, and has
+    /// been measured holding a request open for twenty seconds. Neither may look like a reading:
+    /// an expired login is the one failure worth naming, everything else is "come back later".
+    #[test]
+    fn maps_gateway_failures_to_a_retryable_status() {
+        use reqwest::StatusCode;
+
+        assert_eq!(safe_http_failure(StatusCode::UNAUTHORIZED).0, "signed_out");
+        assert_eq!(safe_http_failure(StatusCode::FORBIDDEN).0, "signed_out");
+        for status in [
+            StatusCode::GATEWAY_TIMEOUT,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::TOO_MANY_REQUESTS,
+        ] {
+            assert_eq!(safe_http_failure(status).0, "unavailable", "{status}");
+        }
+        // The 504 body is nginx's HTML error page, not JSON. It must be rejected as unparsable
+        // rather than read as an empty quota.
+        assert!(build_snapshot(&serde_json::json!("<html>504 Gateway Time-out</html>")).is_err());
+        assert!(serde_json::from_slice::<Value>(b"<html>504</html>").is_err());
     }
 
     #[test]
@@ -521,13 +534,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(credentials.access_token, "fake-access");
-        assert_eq!(credentials.refresh_token.as_deref(), Some("fake-refresh"));
         assert_eq!(credentials.expires_at, Some(1_800_000_000));
-    }
-
-    #[test]
-    fn escapes_form_values() {
-        assert_eq!(form_encode("abc-1_2.3~"), "abc-1_2.3~");
-        assert_eq!(form_encode("a+b/c=d&e"), "a%2Bb%2Fc%3Dd%26e");
     }
 }

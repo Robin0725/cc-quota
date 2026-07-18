@@ -173,13 +173,14 @@ severity 配色(healthy/caution/critical, `format.ts:31`)与 provider 正交,保
 { "access_token": "...", "refresh_token": "...", "expires_at": <unix秒>, "token_type": "Bearer" }
 ```
 - `is_configured()` = 该文件存在且能解析出 `access_token`。
-- `expires_at` 已过期或 60 秒内到期 → 先刷新:
-  ```
-  POST https://auth.kimi.com/api/oauth/token
-  Content-Type: application/x-www-form-urlencoded
-  client_id=17e5f671-d194-4dfb-9706-5516cb48c098&grant_type=refresh_token&refresh_token=<...>
-  ```
-  刷新失败 → `signed_out`。**刷新成功后不要回写凭证文件**(避免与 CLI 抢写),内存里用即可。
+- **app 不参与 token 续期(2026-07-19 拍板,推翻原刷新方案)。** 只读 `access_token`,
+  `refresh_token` 一律不碰、凭证文件一律不写。`expires_at` 已过期或 60 秒内到期 →
+  直接返回失败(`unavailable`,文案说明"CLI 下次运行时会自己续期"),走 §附录 的保底显示。
+
+  理由:access token 寿命只有 15 分钟,Kimi CLI 在用户使用期间自己续期并写文件 ——
+  用户在用 kimi 时 token 永远是新的,而配额数字恰恰只在那时重要。反过来,若服务端的
+  refresh_token 是一次性轮换的,app 刷新后不回写文件就会**让用户的 CLI 登录失效**;
+  回写又要与 CLI 抢文件。收益(不用 kimi 时也能看实时数)远小于搞坏别人登录态的风险。
 
 ### 4.2 取数
 
@@ -264,3 +265,17 @@ Accept: application/json
 - 第一步是**纯重构**:现有测试必须全绿,且托盘位图在 n=2 时逐像素与改前一致。
 - 测试里"恰好两个 provider"的断言(`QuotaCard.test.tsx:128`、`lib.rs` tray_icon_tests)改为**参数化**,不要只把 2 改成 3。
 - 任何情况下不得把 token/凭证内容写进日志、错误信息或测试快照。
+
+---
+
+## 附录:取数失败时的保底显示(2026-07-19 补,公共逻辑)
+
+失败一律保留上次成功的数值并标记 `stale`,**不按 status 区别对待**。
+
+- `merge_snapshots`(lib.rs)与 `mergeSnapshots`(src/lib/snapshots.ts):只有 `ok` 直接替换;
+  其余任何 status(含 `signed_out`)都回落到 30 分钟内的上次成功读数,状态改 `stale`,
+  并把失败 message 带上。
+- 从未成功过(没有可回落的读数)→ 原样上报失败,不编数字。
+- **不得按 status 判断"这次失败是不是永久性的"。** 短寿命 token(kimi 15 分钟)过期时
+  会报 `signed_out`,而 CLI 马上就会续期 —— 早先按 status 清空数值的写法,正是 0.5.0 里
+  kimi 胶囊每刻钟整个消失的原因。允许显示多久由 30 分钟的 `MAX_STALE_SECONDS` 界定,而不是 status。

@@ -1002,7 +1002,12 @@ fn merge_snapshots(
     incoming
         .into_iter()
         .map(|next| {
-            if next.status == "ok" || next.status == "signed_out" {
+            // Every failure keeps the last good reading, whatever its status. Statuses are not a
+            // reliable signal of permanence: an expired short-lived token reports `signed_out`
+            // while the provider's own CLI is about to renew it, and letting that erase the
+            // numbers made the capsule vanish instead of dimming. The age cutoff below is what
+            // bounds how long a reading may be shown; the failure's message still rides along.
+            if next.status == "ok" {
                 return next;
             }
             let Some(mut previous) = current
@@ -1018,6 +1023,36 @@ fn merge_snapshots(
             previous
         })
         .collect()
+}
+
+/// Ceiling on how long one provider may hold up a refresh round.
+///
+/// The HTTP client has its own, shorter timeout, so this is the backstop for everything it does
+/// not cover — a credential helper that never returns, a body that trickles in forever. It sits
+/// above the sum of an adapter's internal timeouts so the adapter's own, better-worded failure is
+/// what normally surfaces. Without it one wedged provider stalls the whole `join_all` and the
+/// menu bar freezes on every provider at once, which is how a single slow endpoint (Kimi has
+/// answered a plain request with a 20 second hang and an HTML `504`) becomes an app-wide outage.
+const PROVIDER_FETCH_BUDGET: Duration = Duration::from_secs(20);
+
+/// Failure recorded when a provider blows the budget. Ordinary failure shape, so the last good
+/// reading is retained as stale exactly like a 401 or a 504 would be.
+fn timed_out_snapshot(descriptor: &providers::ProviderDescriptor) -> ProviderSnapshot {
+    ProviderSnapshot::failure_for(
+        descriptor.id,
+        &descriptor.display_name.to_uppercase(),
+        "unavailable",
+        "Quota service did not respond in time. It will retry automatically.",
+    )
+}
+
+async fn fetch_within_budget(
+    adapter: &'static dyn providers::ProviderAdapter,
+    client: &reqwest::Client,
+) -> ProviderSnapshot {
+    tokio::time::timeout(PROVIDER_FETCH_BUDGET, adapter.fetch_snapshot(client))
+        .await
+        .unwrap_or_else(|_| timed_out_snapshot(adapter.descriptor()))
 }
 
 async fn fetch_snapshots_for_app(app: &AppHandle, force: bool) -> Vec<ProviderSnapshot> {
@@ -1057,7 +1092,7 @@ async fn fetch_snapshots_for_app(app: &AppHandle, force: bool) -> Vec<ProviderSn
     let incoming = futures_util::future::join_all(
         providers::active()
             .into_iter()
-            .map(|adapter| adapter.fetch_snapshot(&state.client)),
+            .map(|adapter| fetch_within_budget(adapter, &state.client)),
     )
     .await;
     let current = state
@@ -1402,7 +1437,12 @@ pub fn run() {
                 WidgetPreferences::default()
             };
             let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(12))
+                // Covers connect, response and body read. Kept well under
+                // `PROVIDER_FETCH_BUDGET` so a gateway that hangs (Kimi's has held a request open
+                // for twenty seconds before answering) is abandoned with a proper message rather
+                // than caught by the backstop.
+                .timeout(Duration::from_secs(10))
+                .connect_timeout(Duration::from_secs(5))
                 .redirect(reqwest::redirect::Policy::none())
                 // Derived at compile time: `check-version.mjs` only guards the three manifests,
                 // so a hardcoded string here would drift silently on the next release.
@@ -1514,8 +1554,9 @@ mod active_provider_tests {
 mod tray_icon_tests {
     use super::{
         empty_tray_icon_rgba, merge_snapshots, providers, render_tray_capsules,
-        time_remaining_hours, tray_capsule_left, tray_icon_rgba, tray_icon_width, ProviderSnapshot,
-        TrayCapsule, UsageWindow, TRAY_CAPSULE_WIDTH, TRAY_ICON_HEIGHT,
+        time_remaining_hours, timed_out_snapshot, tray_capsule_left, tray_icon_rgba,
+        tray_icon_width, ProviderSnapshot, TrayCapsule, UsageWindow, TRAY_CAPSULE_WIDTH,
+        TRAY_ICON_HEIGHT,
     };
     use chrono::{TimeZone, Utc};
 
@@ -1681,15 +1722,63 @@ mod tray_icon_tests {
         assert!(merged[0].short_window.is_none());
     }
 
+    /// A lapsed login is a failure like any other. Kimi's access token lives fifteen minutes and
+    /// reports `signed_out` the moment it lapses, so clearing the values on that status emptied
+    /// the capsule every quarter hour; the reading is dimmed to `stale` and kept instead.
     #[test]
-    fn signed_out_snapshot_clears_last_good_values() {
+    fn a_lapsed_login_keeps_the_last_good_values_as_stale() {
         let previous = successful_snapshot("codex", 74.0);
         let signed_out =
             ProviderSnapshot::failure_for("codex", "CODEX", "signed_out", "Please sign in");
         let merged = merge_snapshots(&[previous], vec![signed_out], &shortly_after_snapshot());
 
-        assert_eq!(merged[0].status, "signed_out");
-        assert!(merged[0].short_window.is_none());
+        assert_eq!(merged[0].status, "stale");
+        assert_eq!(
+            merged[0].short_window.as_ref().unwrap().remaining_percent,
+            74.0
+        );
+        // The reason for the failure still reaches the menu line.
+        assert_eq!(merged[0].message.as_deref(), Some("Please sign in"));
+    }
+
+    /// The four ways a fetch is known to fail — an expired token, a 401, a gateway error and a
+    /// blown time budget — must all degrade the same way, because the user cannot tell them apart
+    /// and none of them means the quota is unknowable.
+    #[test]
+    fn every_kind_of_failure_keeps_the_reading_the_same_way() {
+        let previous = successful_snapshot("codex", 74.0);
+        let failures = [
+            ProviderSnapshot::failure_for("codex", "CODEX", "signed_out", "401"),
+            ProviderSnapshot::failure_for("codex", "CODEX", "unavailable", "token expired"),
+            ProviderSnapshot::failure_for("codex", "CODEX", "unavailable", "504 from the gateway"),
+            timed_out_snapshot(&providers::codex::DESCRIPTOR),
+        ];
+        for failure in failures {
+            let merged = merge_snapshots(
+                std::slice::from_ref(&previous),
+                vec![failure],
+                &shortly_after_snapshot(),
+            );
+            assert_eq!(merged[0].status, "stale");
+            assert_eq!(
+                merged[0].short_window.as_ref().unwrap().remaining_percent,
+                74.0
+            );
+        }
+    }
+
+    /// The other half of the rule: with nothing to fall back on, the failure is reported as-is
+    /// rather than inventing a reading.
+    #[test]
+    fn a_failure_with_no_earlier_reading_stays_a_failure() {
+        for status in ["signed_out", "unavailable"] {
+            let failure = ProviderSnapshot::failure_for("codex", "CODEX", status, "no reading yet");
+            let merged = merge_snapshots(&[], vec![failure], &shortly_after_snapshot());
+
+            assert_eq!(merged[0].status, status);
+            assert!(merged[0].short_window.is_none());
+            assert!(merged[0].weekly_window.is_none());
+        }
     }
 
     /// The contract's §1.5 formula, checked at the count the app shipped with: the icon must stay

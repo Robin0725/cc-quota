@@ -25,9 +25,9 @@ describe("snapshot failure handling", () => {
     expect(mergeSnapshots([], [signedOut])[0].status).toBe("signed_out");
   });
 
-  it("does not hide an expired login behind stale quota data", () => {
+  it("keeps the last reading when a login lapses instead of dropping the card", () => {
     const signedOut: ProviderSnapshot = { ...success, shortWindow: null, weeklyWindow: null, status: "signed_out", message: "Please sign in" };
-    expect(mergeSnapshots([success], [signedOut])[0].status).toBe("signed_out");
+    expect(mergeSnapshots([success], [signedOut])[0]).toEqual({ ...success, status: "stale", message: "Please sign in" });
   });
 
   it("keeps a provider missing from a partial response instead of dropping it from the UI", () => {
@@ -42,6 +42,14 @@ describe("snapshot failure handling", () => {
   it("does not resurrect a provider that never had usable quota data", () => {
     const empty: ProviderSnapshot = { ...success, provider: "claude", shortWindow: null, weeklyWindow: null, status: "signed_out" };
     expect(mergeSnapshots([success, empty], [success]).map((item) => item.provider)).toEqual(["codex"]);
+  });
+
+  it("shows the failure on the very first fetch, when there is nothing to fall back on", () => {
+    const expired: ProviderSnapshot = { ...success, shortWindow: null, weeklyWindow: null, status: "unavailable", message: "Token expired" };
+    const merged = mergeSnapshots([], [expired]);
+
+    expect(merged[0].status).toBe("unavailable");
+    expect(merged[0].shortWindow).toBeNull();
   });
 
   it("replaces stale data after recovery", () => {

@@ -1,6 +1,6 @@
 # CC project summary
 
-CC Quota 0.5.0 is a Tauri 2 macOS menu bar utility that reads the sign-in state Codex Desktop, Claude Code, and Kimi Code already keep locally, and queries each provider's quota service. Providers are registered rather than hardcoded, so support for another one is a descriptor and an adapter.
+CC Quota 0.5.1 is a Tauri 2 macOS menu bar utility that reads the sign-in state Codex Desktop, Claude Code, and Kimi Code already keep locally, and queries each provider's quota service. Providers are registered rather than hardcoded, so support for another one is a descriptor and an adapter.
 
 ## Product behavior
 

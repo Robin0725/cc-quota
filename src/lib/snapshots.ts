@@ -3,8 +3,11 @@ import { preferredWindow } from "./format";
 
 export function mergeSnapshots(current: ProviderSnapshot[], incoming: ProviderSnapshot[]): ProviderSnapshot[] {
   const merged: ProviderSnapshot[] = incoming.map((next) => {
+    // Every failure keeps the last good reading, whatever its status. Statuses are not a reliable
+    // signal of permanence: an expired short-lived token reports `signed_out` while the provider's
+    // own CLI is about to renew it, and letting that erase the numbers made the card vanish
+    // instead of dimming. `isSnapshotDisplayable` bounds how long a stale reading may be shown.
     if (next.status === "ok") return next;
-    if (next.status === "signed_out") return next;
     const previous = current.find((item) => item.provider === next.provider && preferredWindow(item));
     return previous
       ? { ...previous, status: "stale", message: next.message, updatedAt: previous.updatedAt }

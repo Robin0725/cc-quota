@@ -12,7 +12,7 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC Quota 0.5.0 highlights
+## CC Quota 0.5.1 highlights
 
 - Adds Kimi Code alongside Codex and Claude, reading the OAuth token its CLI stores locally and querying `api.kimi.com/coding/v1/usages`.
 - Treats providers as a registry rather than a fixed pair: a new one is a descriptor and an adapter, and the menu bar, menu, and detail panel pick it up without further changes.
@@ -33,7 +33,8 @@ Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See
 - Keeps Codex cool blue, Claude warm orange, and Kimi Code violet, with restrained static gradients and no material animation.
 - Expands only on click, never on hover, and separates a short click from window dragging with a movement threshold.
 - Honors `prefers-reduced-motion` by removing the remaining idle transition.
-- Keeps the last good value briefly as stale data and never invents quota when authentication or response formats fail.
+- Keeps the last good value briefly as stale data and never invents quota when authentication or response formats fail. Every kind of failure is treated the same way, including an expired sign-in, so a card dims rather than disappearing.
+- Gives each provider a fetch budget, so one provider's gateway holding a request open cannot delay the others' readings.
 
 ## Menu bar
 
@@ -57,7 +58,7 @@ Open the menu to inspect reset times, refresh immediately, show or hide the floa
 
 CC reads the existing Codex Desktop, Claude Code, and Kimi Code login state on the same Mac, then calls each provider's quota service. It does not estimate quota from token counts, redeem reset credits, or modify account settings.
 
-Codex authentication is read from `CODEX_HOME/auth.json` or `~/.codex/auth.json`. Claude Code authentication uses `CLAUDE_CODE_OAUTH_TOKEN` only when the user explicitly set it; otherwise the app reads the macOS Keychain item used by Claude Code, with a local Claude credentials-file fallback. Kimi Code authentication is read from `KIMI_CODE_HOME/credentials` or `~/.kimi-code/credentials`, and a token close to expiry is refreshed in memory rather than written back, so CC never races the CLI for that file. Credentials are used in memory and are not copied into CC preferences.
+Codex authentication is read from `CODEX_HOME/auth.json` or `~/.codex/auth.json`. Claude Code authentication uses `CLAUDE_CODE_OAUTH_TOKEN` only when the user explicitly set it; otherwise the app reads the macOS Keychain item used by Claude Code, with a local Claude credentials-file fallback. Kimi Code authentication is read from `KIMI_CODE_HOME/credentials` or `~/.kimi-code/credentials`, where only the access token is read: CC never uses the refresh token and never writes that file, leaving the Kimi Code CLI in sole control of its own login. A token that has expired is reported as a failed reading, and the last good numbers stay on screen, dimmed, until the CLI renews it. Credentials are used in memory and are not copied into CC preferences.
 
 To tell which assistant you are working with, CC subscribes to file system events for each CLI's session directory and records **only the moment a change was reported**. It never opens, reads, or indexes those files, and their paths are never logged. This is what lets several agents in one terminal be told apart, since the frontmost application is the terminal in every case.
 
