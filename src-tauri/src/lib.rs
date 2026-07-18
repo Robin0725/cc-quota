@@ -1,6 +1,7 @@
 mod claude;
 mod codex;
 mod models;
+mod strings;
 
 use std::{
     fs,
@@ -12,6 +13,7 @@ use std::{
 
 use chrono::{DateTime, Local, Utc};
 use models::{ProviderSnapshot, UsageWindow, WidgetPreferences};
+use strings::{tray_copy, TrayCopy};
 use tauri::{
     image::Image,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -651,36 +653,40 @@ fn tray_icon_rgba(
     rgba
 }
 
-fn reset_label(value: Option<&str>) -> String {
+fn reset_label(value: Option<&str>, copy: &TrayCopy) -> String {
     let Some(value) = value else {
-        return "重置时间未知".into();
+        return copy.reset_unknown.into();
     };
     DateTime::parse_from_rfc3339(value)
         .map(|date| {
             date.with_timezone(&Local)
-                .format("%m/%d %H:%M 重置")
+                .format(copy.reset_format)
                 .to_string()
         })
-        .unwrap_or_else(|_| "重置时间未知".into())
+        .unwrap_or_else(|_| copy.reset_unknown.into())
 }
 
-fn provider_menu_line(snapshot: Option<&ProviderSnapshot>, display_name: &str) -> String {
+fn provider_menu_line(
+    snapshot: Option<&ProviderSnapshot>,
+    display_name: &str,
+    copy: &TrayCopy,
+) -> String {
     let Some(snapshot) = snapshot else {
-        return format!("{display_name} · 正在读取…");
+        return format!("{display_name} · {}", copy.loading);
     };
     if let Some((kind, window)) = preferred_window(snapshot) {
         let stale = if snapshot.status == "stale" {
-            " · 旧数据"
+            copy.stale_suffix
         } else {
             ""
         };
         return format!(
             "{display_name} · {kind} {}% · {}{stale}",
             rounded_percent(window),
-            reset_label(window.resets_at.as_deref())
+            reset_label(window.resets_at.as_deref(), copy)
         );
     }
-    let message = snapshot.message.as_deref().unwrap_or("暂时无法读取额度");
+    let message = snapshot.message.as_deref().unwrap_or(copy.unavailable);
     format!("{display_name} · {message}")
 }
 
@@ -703,18 +709,19 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
         .lock()
         .map_err(|_| "settings unavailable".to_string())?
         .clone();
+    let copy = tray_copy(&preferences.language);
     let codex = snapshots.iter().find(|item| item.provider == "codex");
     let claude = snapshots.iter().find(|item| item.provider == "claude");
     let tooltip = format!(
         "{}\n{}",
-        provider_menu_line(codex, "Codex"),
-        provider_menu_line(claude, "Claude")
+        provider_menu_line(codex, "Codex", copy),
+        provider_menu_line(claude, "Claude", copy)
     );
 
     let codex_detail = MenuItem::with_id(
         app,
         "codex_detail",
-        provider_menu_line(codex, "Codex"),
+        provider_menu_line(codex, "Codex", copy),
         false,
         None::<&str>,
     )
@@ -722,7 +729,7 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
     let claude_detail = MenuItem::with_id(
         app,
         "claude_detail",
-        provider_menu_line(claude, "Claude"),
+        provider_menu_line(claude, "Claude", copy),
         false,
         None::<&str>,
     )
@@ -731,7 +738,7 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
     let toggle_widget = CheckMenuItem::with_id(
         app,
         "toggle_widget",
-        "显示悬浮窗",
+        copy.show_widget,
         true,
         preferences.widget_visible,
         None::<&str>,
@@ -740,7 +747,7 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
     let always_on_top = CheckMenuItem::with_id(
         app,
         "always_on_top",
-        "悬浮窗始终置顶",
+        copy.always_on_top,
         true,
         preferences.always_on_top,
         None::<&str>,
@@ -749,27 +756,27 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
     let unlock = MenuItem::with_id(
         app,
         "unlock",
-        "取消鼠标穿透",
+        copy.disable_click_through,
         preferences.locked,
         None::<&str>,
     )
     .map_err(|error| error.to_string())?;
-    let refresh = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)
+    let refresh = MenuItem::with_id(app, "refresh", copy.refresh_now, true, None::<&str>)
         .map_err(|error| error.to_string())?;
-    let language = MenuItem::with_id(app, "language", "切换悬浮窗语言", true, None::<&str>)
+    let language = MenuItem::with_id(app, "language", copy.switch_language, true, None::<&str>)
         .map_err(|error| error.to_string())?;
     let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
     let autostart = CheckMenuItem::with_id(
         app,
         "autostart",
-        "登录时启动",
+        copy.launch_at_login,
         true,
         autostart_enabled,
         None::<&str>,
     )
     .map_err(|error| error.to_string())?;
     let separator_bottom = PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
-    let quit = MenuItem::with_id(app, "quit", "退出 CC", true, None::<&str>)
+    let quit = MenuItem::with_id(app, "quit", copy.quit, true, None::<&str>)
         .map_err(|error| error.to_string())?;
     let menu = Menu::with_items(
         app,
@@ -1116,18 +1123,19 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
     }
 }
 
-fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+fn setup_tray(app: &tauri::App, language: &str) -> tauri::Result<()> {
+    let copy = tray_copy(language);
     let codex_detail = MenuItem::with_id(
         app,
         "codex_detail",
-        "Codex · 正在读取…",
+        provider_menu_line(None, "Codex", copy),
         false,
         None::<&str>,
     )?;
     let claude_detail = MenuItem::with_id(
         app,
         "claude_detail",
-        "Claude · 正在读取…",
+        provider_menu_line(None, "Claude", copy),
         false,
         None::<&str>,
     )?;
@@ -1135,14 +1143,14 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let toggle_widget = CheckMenuItem::with_id(
         app,
         "toggle_widget",
-        "显示悬浮窗",
+        copy.show_widget,
         true,
         false,
         None::<&str>,
     )?;
-    let refresh = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
+    let refresh = MenuItem::with_id(app, "refresh", copy.refresh_now, true, None::<&str>)?;
     let separator_bottom = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "退出 CC", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", copy.quit, true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -1237,7 +1245,7 @@ pub fn run() {
                 snapshot_cache: Mutex::new(None),
             });
 
-            if setup_tray(app).is_err() {
+            if setup_tray(app, &preferences.language).is_err() {
                 eprintln!("tray setup failed; enabling taskbar fallback");
                 if let Some(window) = app.get_webview_window("widget") {
                     let _ = window.set_skip_taskbar(false);
@@ -1557,6 +1565,57 @@ mod tray_icon_tests {
         let early = tray_icon_rgba(Some(73), Some(64), Some(5), Some(4));
         let late = tray_icon_rgba(Some(73), Some(64), Some(1), Some(1));
         assert_ne!(early, late);
+    }
+
+    #[test]
+    fn menu_lines_follow_the_language_preference() {
+        use super::{provider_menu_line, tray_copy};
+
+        let snapshot = successful_snapshot("codex", 74.0);
+        let chinese = provider_menu_line(Some(&snapshot), "Codex", tray_copy("zh-CN"));
+        let english = provider_menu_line(Some(&snapshot), "Codex", tray_copy("en"));
+
+        assert!(chinese.contains("重置"), "unexpected: {chinese}");
+        assert!(english.contains("resets"), "unexpected: {english}");
+        assert!(!english.contains("重置"), "leaked Chinese: {english}");
+        // Percentages are language independent, so both must still carry the reading itself.
+        assert!(chinese.contains("74%") && english.contains("74%"));
+    }
+
+    #[test]
+    fn placeholder_and_stale_markers_are_translated() {
+        use super::{provider_menu_line, tray_copy};
+
+        assert_eq!(
+            provider_menu_line(None, "Codex", tray_copy("en")),
+            "Codex · Reading…"
+        );
+        assert_eq!(
+            provider_menu_line(None, "Codex", tray_copy("zh-CN")),
+            "Codex · 正在读取…"
+        );
+
+        let stale = ProviderSnapshot {
+            status: "stale".into(),
+            ..successful_snapshot("codex", 74.0)
+        };
+        assert!(provider_menu_line(Some(&stale), "Codex", tray_copy("en")).ends_with(" · Stale"));
+        assert!(
+            provider_menu_line(Some(&stale), "Codex", tray_copy("zh-CN")).ends_with(" · 旧数据")
+        );
+    }
+
+    #[test]
+    fn reset_label_falls_back_to_the_localized_unknown_text() {
+        use super::{reset_label, tray_copy};
+
+        assert_eq!(reset_label(None, tray_copy("en")), "Reset time unknown");
+        assert_eq!(reset_label(None, tray_copy("zh-CN")), "重置时间未知");
+        // A malformed timestamp must degrade to the same text rather than surfacing raw input.
+        assert_eq!(
+            reset_label(Some("not-a-date"), tray_copy("en")),
+            "Reset time unknown"
+        );
     }
 
     #[test]
