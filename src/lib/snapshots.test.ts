@@ -30,6 +30,20 @@ describe("snapshot failure handling", () => {
     expect(mergeSnapshots([success], [signedOut])[0].status).toBe("signed_out");
   });
 
+  it("keeps a provider missing from a partial response instead of dropping it from the UI", () => {
+    const claude: ProviderSnapshot = { ...success, provider: "claude", displayName: "CLAUDE" };
+    const merged = mergeSnapshots([success, claude], [success]);
+
+    expect(merged.map((item) => item.provider).sort()).toEqual(["claude", "codex"]);
+    expect(merged.find((item) => item.provider === "claude")?.status).toBe("stale");
+    expect(merged.find((item) => item.provider === "codex")?.status).toBe("ok");
+  });
+
+  it("does not resurrect a provider that never had usable quota data", () => {
+    const empty: ProviderSnapshot = { ...success, provider: "claude", shortWindow: null, weeklyWindow: null, status: "signed_out" };
+    expect(mergeSnapshots([success, empty], [success]).map((item) => item.provider)).toEqual(["codex"]);
+  });
+
   it("replaces stale data after recovery", () => {
     expect(mergeSnapshots([{ ...success, status: "stale" }], [{ ...success, shortWindow: { ...success.shortWindow!, remainingPercent: 88 } }])[0].shortWindow?.remainingPercent).toBe(88);
   });

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderSnapshot } from "../types";
 import { QuotaDetails, QuotaOrb } from "./QuotaCard";
@@ -59,6 +59,33 @@ describe("floating widget interactions", () => {
 
     expect(onDrag).toHaveBeenCalledTimes(1);
     expect(onToggleExpanded).not.toHaveBeenCalled();
+  });
+
+  it("dims again after every hover, not just the first one", () => {
+    vi.useFakeTimers();
+    try {
+      render(<QuotaOrb snapshot={codex} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />);
+      const widget = screen.getByRole("button", { name: /点击展开详情/ });
+
+      act(() => { vi.advanceTimersByTime(2200); });
+      expect(widget.className).toContain("quota-orb--idle");
+
+      fireEvent.mouseEnter(widget);
+      expect(widget.className).not.toContain("quota-orb--idle");
+
+      fireEvent.mouseLeave(widget);
+      act(() => { vi.advanceTimersByTime(2200); });
+      expect(widget.className).toContain("quota-orb--idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flags a nearly exhausted quota without relying on the provider colour", () => {
+    const critical: ProviderSnapshot = { ...codex, shortWindow: { ...codex.shortWindow!, remainingPercent: 4 } };
+    const { container } = render(<QuotaOrb snapshot={critical} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelector(".quota-orb--tier-critical")).toBeTruthy();
   });
 
   it("renders both providers in the expanded detail view", () => {

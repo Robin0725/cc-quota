@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QuotaDetails, QuotaOrb } from "./components/QuotaCard";
 import { fetchSnapshots, getFrontmostProvider, getPreferences, listenDesktopEvents, setWidgetExpanded, startDragging, type WidgetPlacement } from "./lib/bridge";
 import { displayableSnapshots, needsFastRefresh } from "./lib/format";
-import { normalizeLanguage } from "./lib/i18n";
+import { copy, normalizeLanguage } from "./lib/i18n";
 import { mergeSnapshots } from "./lib/snapshots";
 import type { ProviderId, ProviderSnapshot, WidgetPreferences } from "./types";
 
@@ -18,15 +18,27 @@ export default function App() {
   const expansionBusy = useRef(false);
   const failures = useRef(0);
   const language = normalizeLanguage(preferences.language);
+  // `refresh` is stable (empty deps), so it reads the active copy through a ref instead of
+  // hardcoding English into the snapshot message.
+  const copyRef = useRef(copy[language]);
+  copyRef.current = copy[language];
+
+  // Five call sites (mount, interval, focus/visibility, hover, expand) can overlap. Only the most
+  // recent request may write state, otherwise a slow earlier response overwrites fresher data and
+  // concurrent responses each bump `failures`, corrupting the backoff interval.
+  const latestRequest = useRef(0);
 
   const refresh = useCallback(async (force = false) => {
+    const request = ++latestRequest.current;
     try {
       const values = await fetchSnapshots(force);
+      if (request !== latestRequest.current) return;
       failures.current = values.some((item) => item.status !== "ok") ? failures.current + 1 : 0;
       setSnapshots((current) => mergeSnapshots(current, values));
     } catch {
+      if (request !== latestRequest.current) return;
       failures.current += 1;
-      setSnapshots((current) => current.map((item) => ({ ...item, status: "stale", message: "Refresh failed. Please try again later." })));
+      setSnapshots((current) => current.map((item) => ({ ...item, status: "stale", message: copyRef.current.errorUnavailable })));
     }
   }, []);
 

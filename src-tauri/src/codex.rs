@@ -151,11 +151,17 @@ fn collect_reset_credit_expirations(value: &Value) -> Vec<String> {
     expirations
 }
 
+/// Decides whether a numeric usage field is a 0..=1 ratio that must be scaled to a percentage.
+///
+/// Ratio-named fields are *not* trusted unconditionally: `utilization` in particular is a
+/// percentage in Claude's payload (`claude.rs`), so assuming it is always a ratio would turn a
+/// returned `40` into `4000%` and clamp the remaining quota to a confident, wrong `0%`.
+/// A value above 1.0 cannot be a ratio, so the magnitude is the deciding signal.
 fn scale_ratio_field(key: &str, value: f64) -> bool {
-    matches!(
-        key,
-        "remaining_ratio" | "remainingRatio" | "used_ratio" | "usedRatio" | "utilization"
-    ) || (!key.contains("percent") && !key.contains("pct") && value <= 1.0)
+    if key.contains("percent") || key.contains("pct") {
+        return false;
+    }
+    value <= 1.0
 }
 
 fn parse_window(value: Option<&Value>) -> Option<UsageWindow> {
@@ -518,6 +524,17 @@ mod tests {
         assert_eq!(
             parse_window(Some(&used_ratio)).unwrap().remaining_percent,
             75.0
+        );
+    }
+
+    #[test]
+    fn treats_utilization_above_one_as_a_percentage() {
+        // Claude reports `utilization` as a percentage; scaling it as a ratio would report
+        // 100 - 4000 -> clamped 0% remaining while the account still has 60% left.
+        let percentage = serde_json::json!({"utilization": 40, "periodSeconds": 18000});
+        assert_eq!(
+            parse_window(Some(&percentage)).unwrap().remaining_percent,
+            60.0
         );
     }
 

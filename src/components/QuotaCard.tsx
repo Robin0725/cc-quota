@@ -1,5 +1,5 @@
-import { memo, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { clampPercent, formatResetTime, preferredWindow } from "../lib/format";
+import { memo, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { clampPercent, formatResetTime, preferredWindow, quotaTier } from "../lib/format";
 import { copy, normalizeLanguage } from "../lib/i18n";
 import type { Language, ProviderSnapshot } from "../types";
 
@@ -98,12 +98,17 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
   const percent = selected ? clampPercent(selected.value.remainingPercent) : null;
   const available = snapshot !== null && selected !== null && percent !== null;
 
-  useEffect(() => {
+  const startIdleTimer = useCallback(() => {
+    if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(() => setIdle(true), 2200);
+  }, []);
+
+  useEffect(() => {
+    startIdleTimer();
     return () => {
       if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
     };
-  }, [snapshot?.provider]);
+  }, [snapshot?.provider, startIdleTimer]);
 
   const handleMouseEnter = () => {
     if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
@@ -111,15 +116,24 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
     onHover(true);
   };
 
+  // Without restarting the timer here the orb stays fully opaque forever after the first hover,
+  // because the effect above only re-runs when the provider changes.
+  const handleMouseLeave = () => {
+    startIdleTimer();
+    onHover(false);
+  };
+
+  const t = copy[activeLanguage];
   const ariaLabel = available
-    ? `${snapshot.displayName} ${copy[activeLanguage].availableLabel(percent, selected.kind)}，${activeLanguage === "en" ? "click for details" : "点击展开详情"}`
-    : `${copy[activeLanguage].unavailableStatus}，${activeLanguage === "en" ? "click for details" : "点击展开详情"}`;
+    ? `${snapshot.displayName} ${t.availableLabel(percent, selected.kind)}${t.clauseSeparator}${t.expandDetails}`
+    : `${t.unavailableStatus}${t.clauseSeparator}${t.expandDetails}`;
+  const tier = quotaTier(percent);
 
   return (
     <main
-      className={`quota-orb${snapshot ? ` quota-orb--${snapshot.provider}` : " quota-orb--empty"}${idle ? " quota-orb--idle" : ""}`}
+      className={`quota-orb${snapshot ? ` quota-orb--${snapshot.provider}` : " quota-orb--empty"} quota-orb--tier-${tier}${idle ? " quota-orb--idle" : ""}`}
       onMouseEnter={handleMouseEnter}
-      onMouseLeave={() => onHover(false)}
+      onMouseLeave={handleMouseLeave}
       {...interactions}
       role="button"
       tabIndex={0}
@@ -191,7 +205,7 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
                     <strong>{percent}<small>%</small></strong>
                     <span>{selected.kind === "short" ? labels.short : labels.weekly}</span>
                   </div>
-                  <div className="detail-progress" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+                  <div className={`detail-progress detail-progress--tier-${quotaTier(percent)}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
                     <i style={{ width: `${percent}%` }} />
                   </div>
                   <div className="detail-meta">

@@ -824,9 +824,21 @@ fn unavailable_snapshots(message: &str) -> Vec<ProviderSnapshot> {
     ]
 }
 
+/// Mirrors `isSnapshotDisplayable` in `src/lib/format.ts`: past this age the last good reading is
+/// no longer worth showing. Without it the tray keeps rendering a confident percentage from an
+/// arbitrarily old fetch while the widget has already blanked out.
+const MAX_STALE_SECONDS: i64 = 30 * 60;
+
+fn is_within_stale_window(snapshot: &ProviderSnapshot, now: &DateTime<Utc>) -> bool {
+    DateTime::parse_from_rfc3339(&snapshot.updated_at)
+        .map(|updated| (*now - updated.with_timezone(&Utc)).num_seconds() <= MAX_STALE_SECONDS)
+        .unwrap_or(false)
+}
+
 fn merge_snapshots(
     current: &[ProviderSnapshot],
     incoming: Vec<ProviderSnapshot>,
+    now: &DateTime<Utc>,
 ) -> Vec<ProviderSnapshot> {
     incoming
         .into_iter()
@@ -837,6 +849,7 @@ fn merge_snapshots(
             let Some(mut previous) = current
                 .iter()
                 .find(|item| item.provider == next.provider && preferred_window(item).is_some())
+                .filter(|item| is_within_stale_window(item, now))
                 .cloned()
             else {
                 return next;
@@ -892,7 +905,7 @@ async fn fetch_snapshots_for_app(app: &AppHandle, force: bool) -> Vec<ProviderSn
         .ok()
         .and_then(|cache| cache.as_ref().map(|(_, values)| values.clone()))
         .unwrap_or_default();
-    let values = merge_snapshots(&current, vec![codex_snapshot, claude_snapshot]);
+    let values = merge_snapshots(&current, vec![codex_snapshot, claude_snapshot], &Utc::now());
     if let Ok(mut cache) = state.snapshot_cache.lock() {
         *cache = Some((Instant::now(), values.clone()));
     }
@@ -1364,12 +1377,23 @@ mod tray_icon_tests {
         }
     }
 
+    /// `successful_snapshot` is stamped 2026-07-17T18:00:00Z; this is 10 minutes later.
+    fn shortly_after_snapshot() -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 7, 17, 18, 10, 0)
+            .single()
+            .unwrap()
+    }
+
     #[test]
     fn transient_failure_keeps_last_good_snapshot_for_tray_and_widget() {
         let previous = successful_snapshot("codex", 74.0);
         let failure =
             ProviderSnapshot::failure_for("codex", "CODEX", "unavailable", "Network unavailable");
-        let merged = merge_snapshots(std::slice::from_ref(&previous), vec![failure]);
+        let merged = merge_snapshots(
+            std::slice::from_ref(&previous),
+            vec![failure],
+            &shortly_after_snapshot(),
+        );
 
         assert_eq!(merged[0].status, "stale");
         assert_eq!(
@@ -1381,11 +1405,27 @@ mod tray_icon_tests {
     }
 
     #[test]
+    fn stale_snapshot_is_dropped_once_it_passes_the_display_window() {
+        let previous = successful_snapshot("codex", 74.0);
+        let failure =
+            ProviderSnapshot::failure_for("codex", "CODEX", "unavailable", "Network unavailable");
+        // 31 minutes after the last good reading, past the 30 minute cutoff the widget uses.
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 17, 18, 31, 0)
+            .single()
+            .unwrap();
+        let merged = merge_snapshots(std::slice::from_ref(&previous), vec![failure], &now);
+
+        assert_eq!(merged[0].status, "unavailable");
+        assert!(merged[0].short_window.is_none());
+    }
+
+    #[test]
     fn signed_out_snapshot_clears_last_good_values() {
         let previous = successful_snapshot("codex", 74.0);
         let signed_out =
             ProviderSnapshot::failure_for("codex", "CODEX", "signed_out", "Please sign in");
-        let merged = merge_snapshots(&[previous], vec![signed_out]);
+        let merged = merge_snapshots(&[previous], vec![signed_out], &shortly_after_snapshot());
 
         assert_eq!(merged[0].status, "signed_out");
         assert!(merged[0].short_window.is_none());

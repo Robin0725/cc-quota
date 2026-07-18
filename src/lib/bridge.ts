@@ -197,6 +197,13 @@ export async function listenDesktopEvents(handlers: {
   if (!isTauri()) return () => undefined;
   const { listen } = await import("@tauri-apps/api/event");
   const unlistenPreferences = await listen<WidgetPreferences>("preferences-changed", (event) => handlers.onPreferences(event.payload));
-  const unlistenSnapshots = await listen<ProviderSnapshot[]>("snapshots-changed", (event) => handlers.onSnapshots(event.payload));
+  let unlistenSnapshots: () => void;
+  try {
+    unlistenSnapshots = await listen<ProviderSnapshot[]>("snapshots-changed", (event) => handlers.onSnapshots(event.payload));
+  } catch (error) {
+    // Otherwise the first listener leaks: its handle is lost and the caller swallows the rejection.
+    unlistenPreferences();
+    throw error;
+  }
   return () => { unlistenPreferences(); unlistenSnapshots(); };
 }
