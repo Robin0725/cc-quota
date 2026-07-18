@@ -6,7 +6,7 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC 0.3.11 highlights
+## CC 0.3.12 highlights
 
 - Shows Codex and Claude together as two compact horizontal quota capsules in the macOS menu bar.
 - Enlarges each menu bar capsule to `40 × 17 pt` and scales the centered percentage with it, while staying inside the menu bar's safe visual height.
