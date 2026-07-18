@@ -11,8 +11,8 @@
 ## Tagged build
 
 ```bash
-git tag v0.3.10
-git push origin v0.3.10
+git tag v0.3.11
+git push origin v0.3.11
 ```
 
 The tag check rejects a tag that does not match all three manifests. The release workflow creates a draft with `cc-macos-universal-unsigned.zip`; inspect the artifact before publishing it.

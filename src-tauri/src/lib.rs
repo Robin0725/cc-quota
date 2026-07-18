@@ -1234,7 +1234,9 @@ pub fn run() {
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(12))
                 .redirect(reqwest::redirect::Policy::none())
-                .user_agent("CCQuota/0.3.10")
+                // Derived at compile time: `check-version.mjs` only guards the three manifests,
+                // so a hardcoded string here would drift silently on the next release.
+                .user_agent(concat!("CCQuota/", env!("CARGO_PKG_VERSION")))
                 .build()
                 .expect("static HTTP client configuration must be valid");
             app.manage(AppState {

@@ -1,6 +1,6 @@
 # CC project summary
 
-CC 0.3.10 is a Tauri 2 macOS menu bar utility that reads existing local Codex Desktop and Claude Code sign-in state and queries each provider's quota service.
+CC 0.3.11 is a Tauri 2 macOS menu bar utility that reads existing local Codex Desktop and Claude Code sign-in state and queries each provider's quota service.
 
 ## Product behavior
 
