@@ -226,10 +226,10 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
                     <div className="detail-scoped">
                       {(snapshot.scopedWindows ?? []).map((scoped) => (
                         <span key={scoped.label}>
-                          <b>{scoped.label}</b>
-                          <em className={`detail-scoped-value detail-scoped-value--${quotaTier(clampPercent(scoped.remainingPercent))}`}>
+                          {scoped.label}{" "}
+                          <span className={`detail-scoped-value detail-scoped-value--${quotaTier(clampPercent(scoped.remainingPercent))}`}>
                             {clampPercent(scoped.remainingPercent)}%
-                          </em>
+                          </span>
                         </span>
                       ))}
                     </div>

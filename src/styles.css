@@ -161,10 +161,11 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
    Right-aligned and tucked close under the weekly figure in `.detail-meta`: these are weekly
    buckets sharing the account weekly's exact reset instant, so they read as a continuation of it
    rather than as an unrelated row. That shared reset is also why they carry no time of their own. */
-.detail-scoped { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 10px; margin-top: 3px; }
-.detail-scoped span { display: inline-flex; align-items: baseline; gap: 4px; }
-.detail-scoped b { color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 700; letter-spacing: 0.05em; }
-.detail-scoped-value { color: rgba(23, 33, 44, 0.74); font-size: 9px; font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+.detail-scoped { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 10px; margin-top: 3px; color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 570; }
+/* Typography deliberately matches `.detail-meta`: a scoped bucket is peer information to the
+   weekly figure above it, so it must not out-shout it. Only the tier colours below break rank,
+   and only once the bucket is actually running low. */
+.detail-scoped-value { font-variant-numeric: tabular-nums; }
 .detail-scoped-value--caution { color: #a3660d; }
 .detail-scoped-value--critical { color: #b83725; }
 
