@@ -8,12 +8,20 @@ export interface UsageWindow {
   windowSeconds: number;
 }
 
+/** A quota bucket scoped to one model, labelled by whatever name the API reports. */
+export interface ScopedWindow {
+  label: string;
+  remainingPercent: number;
+  resetsAt: string | null;
+}
+
 export interface ProviderSnapshot {
   provider: ProviderId;
   displayName: string;
   plan: string | null;
   shortWindow: UsageWindow | null;
   weeklyWindow: UsageWindow | null;
+  scopedWindows?: ScopedWindow[];
   resetCredits: number | null;
   resetCreditExpiresAt?: string[];
   updatedAt: string;

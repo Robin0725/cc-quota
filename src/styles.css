@@ -73,6 +73,11 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .orb-value { display: flex; align-items: flex-end; margin-top: 8px; font-size: 28px; font-weight: 560; letter-spacing: -0.065em; line-height: 1; font-variant-numeric: tabular-nums; }
 .orb-value small { margin: 0 0 3px 2px; font-size: 10px; font-weight: 760; letter-spacing: 0; }
 
+/* Hours left in the 5-hour window, mirroring the tray capsule's dot row. */
+.orb-dots { position: absolute; bottom: 11px; left: 50%; display: flex; gap: 4px; transform: translateX(-50%); }
+.orb-dots i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.22; }
+.orb-dots i.is-lit { opacity: 0.78; }
+
 .orb-empty { display: grid; justify-items: center; gap: 6px; }
 .orb-empty span { font-size: 9px; font-weight: 760; letter-spacing: 0.14em; }
 .orb-empty strong { font-size: 24px; font-weight: 420; line-height: 1; }
@@ -152,6 +157,17 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .detail-provider .detail-progress--tier-critical i { background: #b83725; }
 .detail-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 570; }
 .detail-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Per-model buckets (e.g. Fable), shown only when the API reports one.
+   Right-aligned and tucked close under the weekly figure in `.detail-meta`: these are weekly
+   buckets sharing the account weekly's exact reset instant, so they read as a continuation of it
+   rather than as an unrelated row. That shared reset is also why they carry no time of their own. */
+.detail-scoped { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 10px; margin-top: 3px; }
+.detail-scoped span { display: inline-flex; align-items: baseline; gap: 4px; }
+.detail-scoped b { color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 700; letter-spacing: 0.05em; }
+.detail-scoped-value { color: rgba(23, 33, 44, 0.74); font-size: 9px; font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+.detail-scoped-value--caution { color: #a3660d; }
+.detail-scoped-value--critical { color: #b83725; }
+
 .detail-unavailable, .details-loading { margin: 20px 0 0; color: rgba(23, 33, 44, 0.58); font-size: 10px; line-height: 1.45; text-align: center; }
 .details-loading { align-self: center; }
 
@@ -177,6 +193,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 }
 .screenshot-stage { width: 100vw; height: 100vh; }
 .design-orb-frame { width: 100px; height: 100px; }
+.design-panel-frame { width: 320px; height: 320px; }
 .design-preview-switch { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; padding: 5px; border: 1px solid rgba(74, 83, 98, 0.14); border-radius: 13px; background: rgba(255, 255, 255, 0.86); box-shadow: 0 8px 25px rgba(36, 44, 57, 0.08); }
 .design-preview-switch button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 9px; color: #66707f; background: transparent; cursor: pointer; }
 .design-preview-switch button.is-active { color: white; background: #2c5f9e; }

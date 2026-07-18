@@ -51,6 +51,24 @@ export function formatResetTime(value: string | null, now = new Date(), language
   return t.resetInDays(days, hours % 24);
 }
 
+/** Dots lit on the orb, mirroring `time_remaining_hours` in the tray renderer. */
+export const RESET_DOT_COUNT = 5;
+
+/**
+ * Whole hours left in a window, rounded up and capped at {@link RESET_DOT_COUNT}.
+ *
+ * Returns 0 once the window has elapsed so the countdown reads empty rather than disappearing,
+ * and null when there is nothing to count down to.
+ */
+export function hoursUntilReset(window: UsageWindow | null | undefined, now = new Date()): number | null {
+  if (!window?.resetsAt) return null;
+  const target = new Date(window.resetsAt).getTime();
+  if (Number.isNaN(target)) return null;
+  const delta = target - now.getTime();
+  if (delta <= 0) return 0;
+  return Math.min(RESET_DOT_COUNT, Math.max(1, Math.ceil(delta / 3_600_000)));
+}
+
 export function needsFastRefresh(snapshot: ProviderSnapshot, now = new Date()): boolean {
   const reset = preferredWindow(snapshot)?.value.resetsAt;
   if (!reset) return false;

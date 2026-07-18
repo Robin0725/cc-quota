@@ -88,6 +88,43 @@ describe("floating widget interactions", () => {
     expect(container.querySelector(".quota-orb--tier-critical")).toBeTruthy();
   });
 
+  it("lights one dot per remaining hour of the 5-hour window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-17T17:30:00Z")); // 2.5h before the 20:00Z reset
+    try {
+      const { container } = render(<QuotaOrb snapshot={codex} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />);
+
+      expect(container.querySelectorAll(".orb-dots i")).toHaveLength(5);
+      expect(container.querySelectorAll(".orb-dots i.is-lit")).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits the countdown when only a weekly window is available", () => {
+    const weeklyOnly: ProviderSnapshot = { ...codex, shortWindow: null };
+    const { container } = render(<QuotaOrb snapshot={weeklyOnly} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelector(".orb-dots")).toBeNull();
+  });
+
+  it("shows a per-model bucket under the provider it belongs to", () => {
+    const withFable: ProviderSnapshot = {
+      ...claude,
+      scopedWindows: [{ label: "Fable", remainingPercent: 75, resetsAt: "2026-07-21T03:00:00Z" }],
+    };
+    render(<QuotaDetails snapshots={[codex, withFable]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(screen.getByText("Fable")).toBeTruthy();
+    expect(screen.getByText("75%")).toBeTruthy();
+  });
+
+  it("shows nothing extra when the provider reports no per-model bucket", () => {
+    const { container } = render(<QuotaDetails snapshots={[codex]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelector(".detail-scoped")).toBeNull();
+  });
+
   it("renders both providers in the expanded detail view", () => {
     render(<QuotaDetails snapshots={[codex, claude]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
 

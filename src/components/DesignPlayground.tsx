@@ -1,7 +1,7 @@
 import { useState } from "react";
 import originalOrbReference from "../../docs/images/quota-orb.png";
 import type { ProviderSnapshot } from "../types";
-import { QuotaOrb } from "./QuotaCard";
+import { QuotaDetails, QuotaOrb } from "./QuotaCard";
 
 const now = Date.now();
 
@@ -21,12 +21,20 @@ const claude: ProviderSnapshot = {
 
 const weeklyCodex: ProviderSnapshot = { ...codex, shortWindow: null, weeklyWindow: { ...codex.weeklyWindow!, remainingPercent: 42 } };
 
-type PreviewMode = "codex" | "claude" | "weekly" | "empty" | "compare";
+// The expanded panel had no preview mode, which is how a misplaced per-model row reached a build.
+// Fable shares the account weekly's reset instant, so it is given the same resetsAt here.
+const claudeWithScoped: ProviderSnapshot = {
+  ...claude,
+  scopedWindows: [{ label: "Fable", remainingPercent: 75, resetsAt: claude.weeklyWindow!.resetsAt }],
+};
+
+type PreviewMode = "codex" | "claude" | "weekly" | "empty" | "details" | "compare";
 const modes: Array<{ value: PreviewMode; label: string }> = [
   { value: "codex", label: "Codex · 5H" },
   { value: "claude", label: "Claude · 5H" },
   { value: "weekly", label: "Codex · 周额度" },
   { value: "empty", label: "暂无额度" },
+  { value: "details", label: "展开面板" },
   { value: "compare", label: "旧版对照" },
 ];
 
@@ -39,7 +47,9 @@ export function DesignPlayground() {
   const [mode, setMode] = useState<PreviewMode>(() => initialMode());
   const screenshotMode = new URLSearchParams(window.location.search).has("shot");
   const snapshot = mode === "codex" ? codex : mode === "claude" ? claude : mode === "weekly" ? weeklyCodex : null;
-  const preview = <div className="design-orb-frame"><QuotaOrb snapshot={snapshot} language="zh-CN" onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} /></div>;
+  const preview = mode === "details"
+    ? <div className="design-panel-frame"><QuotaDetails snapshots={[codex, claudeWithScoped]} language="zh-CN" onDrag={() => undefined} onToggleExpanded={() => undefined} /></div>
+    : <div className="design-orb-frame"><QuotaOrb snapshot={snapshot} language="zh-CN" onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} /></div>;
 
   if (mode === "compare") {
     return (

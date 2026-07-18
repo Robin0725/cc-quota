@@ -1379,6 +1379,7 @@ mod tray_icon_tests {
                 window_seconds: 18_000,
             }),
             weekly_window: None,
+            scoped_windows: Vec::new(),
             reset_credits: None,
             reset_credit_expires_at: Vec::new(),
             updated_at: "2026-07-17T18:00:00Z".into(),

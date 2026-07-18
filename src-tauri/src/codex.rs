@@ -467,6 +467,8 @@ pub async fn fetch_snapshot(client: &reqwest::Client) -> ProviderSnapshot {
         plan: pick_string(&usage, &["plan_type", "planType"]).map(|value| value.to_uppercase()),
         short_window,
         weekly_window,
+        // Codex reports no per-model buckets.
+        scoped_windows: Vec::new(),
         reset_credits,
         reset_credit_expires_at,
         updated_at: chrono::Utc::now().to_rfc3339(),

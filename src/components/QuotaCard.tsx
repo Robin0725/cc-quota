@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { clampPercent, formatResetTime, preferredWindow, quotaTier } from "../lib/format";
+import { clampPercent, formatResetTime, hoursUntilReset, preferredWindow, quotaTier, RESET_DOT_COUNT } from "../lib/format";
 import { copy, normalizeLanguage } from "../lib/i18n";
 import type { Language, ProviderSnapshot } from "../types";
 
@@ -97,6 +97,9 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
   const selected = snapshot ? preferredWindow(snapshot) : null;
   const percent = selected ? clampPercent(selected.value.remainingPercent) : null;
   const available = snapshot !== null && selected !== null && percent !== null;
+  // Only the 5-hour window gets a countdown, matching `snapshot_time_hours` in the tray renderer:
+  // a weekly window would light every dot for days on end and tell the user nothing.
+  const resetHours = selected?.kind === "short" ? hoursUntilReset(selected.value) : null;
 
   const startIdleTimer = useCallback(() => {
     if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
@@ -146,6 +149,13 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
         <section className="orb-metric" role="progressbar" aria-label={ariaLabel} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
           <span className="orb-source">{providerAbbreviation(snapshot)}<i aria-hidden="true" />{selected.kind === "weekly" ? "W" : "5H"}</span>
           <span className="orb-value">{percent}<small>%</small></span>
+          {resetHours !== null ? (
+            <span className="orb-dots" aria-hidden="true">
+              {Array.from({ length: RESET_DOT_COUNT }, (_, index) => (
+                <i key={index} className={index < resetHours ? "is-lit" : undefined} />
+              ))}
+            </span>
+          ) : null}
         </section>
       ) : (
         <section className="orb-empty" aria-live="polite"><span>CC</span><strong>—</strong></section>
@@ -212,6 +222,18 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
                     <span>{formatResetTime(selected.value.resetsAt, new Date(), activeLanguage)}</span>
                     <span>{weeklyPercent === null ? labels.noWeekly : `${labels.weekly} ${weeklyPercent}%`}</span>
                   </div>
+                  {(snapshot.scopedWindows ?? []).length > 0 ? (
+                    <div className="detail-scoped">
+                      {(snapshot.scopedWindows ?? []).map((scoped) => (
+                        <span key={scoped.label}>
+                          <b>{scoped.label}</b>
+                          <em className={`detail-scoped-value detail-scoped-value--${quotaTier(clampPercent(scoped.remainingPercent))}`}>
+                            {clampPercent(scoped.remainingPercent)}%
+                          </em>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <p className="detail-unavailable">{snapshot.message ?? copy[activeLanguage].unavailableStatus}</p>

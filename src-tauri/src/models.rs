@@ -8,6 +8,20 @@ pub struct UsageWindow {
     pub window_seconds: u64,
 }
 
+/// A quota bucket that applies to one model rather than the account as a whole.
+///
+/// Anthropic reports these inside the `limits` array with `kind: "weekly_scoped"`, naming the
+/// model only through `scope.model.display_name` (`scope.model.id` is null). The label is
+/// therefore taken verbatim from the response instead of being matched against a known list, so a
+/// renamed or newly restricted model shows up without a code change.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopedWindow {
+    pub label: String,
+    pub remaining_percent: f64,
+    pub resets_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderSnapshot {
@@ -16,6 +30,8 @@ pub struct ProviderSnapshot {
     pub plan: Option<String>,
     pub short_window: Option<UsageWindow>,
     pub weekly_window: Option<UsageWindow>,
+    #[serde(default)]
+    pub scoped_windows: Vec<ScopedWindow>,
     pub reset_credits: Option<u64>,
     pub reset_credit_expires_at: Vec<String>,
     pub updated_at: String,
@@ -31,6 +47,7 @@ impl ProviderSnapshot {
             plan: None,
             short_window: None,
             weekly_window: None,
+            scoped_windows: Vec::new(),
             reset_credits: None,
             reset_credit_expires_at: Vec::new(),
             updated_at: chrono::Utc::now().to_rfc3339(),

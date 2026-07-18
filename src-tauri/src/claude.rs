@@ -4,7 +4,7 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYP
 use serde_json::Value;
 use tokio::{process::Command, time::timeout};
 
-use crate::models::{ProviderSnapshot, UsageWindow};
+use crate::models::{ProviderSnapshot, ScopedWindow, UsageWindow};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
@@ -176,6 +176,42 @@ fn parse_window(value: &Value, key: &str, window_seconds: u64) -> Option<UsageWi
     })
 }
 
+/// Extracts the per-model weekly buckets from the `limits` array.
+///
+/// `percent` here is the *used* share, matching `utilization` elsewhere in the payload, so it is
+/// inverted to stay consistent with every other figure the app displays. Anything that is not a
+/// `weekly_scoped` entry is left alone: the session and account-wide weekly buckets are already
+/// read from the dedicated `five_hour` / `seven_day` objects.
+fn parse_scoped_windows(usage: &Value) -> Vec<ScopedWindow> {
+    let Some(limits) = usage.get("limits").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    limits
+        .iter()
+        .filter_map(|limit| {
+            if limit.get("kind").and_then(Value::as_str) != Some("weekly_scoped") {
+                return None;
+            }
+            let used_percent = limit.get("percent").and_then(Value::as_f64)?;
+            let label = limit
+                .get("scope")?
+                .get("model")?
+                .get("display_name")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())?
+                .to_owned();
+            Some(ScopedWindow {
+                label,
+                remaining_percent: (100.0 - used_percent).clamp(0.0, 100.0),
+                resets_at: limit
+                    .get("resets_at")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            })
+        })
+        .collect()
+}
+
 fn safe_http_failure(status: reqwest::StatusCode) -> (&'static str, &'static str) {
     match status.as_u16() {
         401 | 403 => (
@@ -265,6 +301,7 @@ pub async fn fetch_snapshot(client: &reqwest::Client) -> ProviderSnapshot {
         plan: auth.plan,
         short_window,
         weekly_window,
+        scoped_windows: parse_scoped_windows(&usage),
         reset_credits: None,
         reset_credit_expires_at: Vec::new(),
         updated_at: chrono::Utc::now().to_rfc3339(),
@@ -301,6 +338,47 @@ mod tests {
                 .remaining_percent,
             86.0
         );
+    }
+
+    /// Mirrors a real `/oauth/usage` payload: the per-model bucket lives in `limits`, not in the
+    /// `seven_day_*` fields, which stay null even on an account that has one.
+    #[test]
+    fn reads_per_model_buckets_from_the_limits_array() {
+        let usage = serde_json::json!({
+            "seven_day_opus": null,
+            "limits": [
+                {"kind": "session", "percent": 27, "scope": null},
+                {"kind": "weekly_all", "percent": 21, "scope": null},
+                {
+                    "kind": "weekly_scoped",
+                    "percent": 25,
+                    "resets_at": "2026-07-21T03:00:00Z",
+                    "scope": {"model": {"id": null, "display_name": "Fable"}}
+                }
+            ]
+        });
+
+        let scoped = parse_scoped_windows(&usage);
+        assert_eq!(
+            scoped.len(),
+            1,
+            "session and weekly_all must not be duplicated"
+        );
+        assert_eq!(scoped[0].label, "Fable");
+        // `percent` is the used share; every figure the app shows is remaining.
+        assert_eq!(scoped[0].remaining_percent, 75.0);
+        assert_eq!(scoped[0].resets_at.as_deref(), Some("2026-07-21T03:00:00Z"));
+    }
+
+    #[test]
+    fn tolerates_a_payload_without_per_model_buckets() {
+        assert!(parse_scoped_windows(&serde_json::json!({})).is_empty());
+        assert!(parse_scoped_windows(&serde_json::json!({"limits": []})).is_empty());
+        // An unnamed model cannot be labelled, so it is skipped rather than shown as blank.
+        let unnamed = serde_json::json!({
+            "limits": [{"kind": "weekly_scoped", "percent": 10, "scope": {"model": {"display_name": ""}}}]
+        });
+        assert!(parse_scoped_windows(&unnamed).is_empty());
     }
 
     #[test]
