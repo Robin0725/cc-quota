@@ -130,14 +130,24 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .details-header div > span { width: 27px; height: 22px; display: grid; place-items: center; border-radius: 8px; color: white; background: #263341; font-size: 9px; font-weight: 780; letter-spacing: 0.08em; }
 .details-header strong { font-size: 15px; font-weight: 690; letter-spacing: -0.02em; }
 /* Implicit rows rather than `repeat(2, ...)`: the panel takes however many providers the registry
-   reports, splitting its fixed height evenly with no count baked into the stylesheet. */
-.details-providers { height: calc(100% - 42px); display: grid; grid-auto-rows: minmax(0, 1fr); gap: 10px; }
-/* Past four the rows would be unreadable, so the window keeps its size and the list scrolls. */
-.details-providers--scroll { grid-auto-rows: minmax(66px, auto); align-content: start; overflow-y: auto; overscroll-behavior: contain; }
-.detail-provider { min-height: 0; padding: 11px 13px 10px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.68); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56); }
+   reports, with no count baked into the stylesheet.
+
+   `min-content` as the row floor is load-bearing, not a tweak: it makes a row physically unable to
+   be shorter than the card inside it, so nothing can be silently cut off. A `minmax(0, 1fr)` floor
+   plus `overflow: hidden` on the card is what once ate Claude's scoped `Fable` row. `1fr` still
+   lets rows share the spare height whenever there is any, so one and two providers look unchanged.
+
+   Scrolling triggers on real overflow rather than a provider count: card height depends on content
+   — whether there are scoped buckets and how many — not on how many providers exist. */
+.details-providers { height: calc(100% - 42px); display: grid; grid-auto-rows: minmax(min-content, 1fr); gap: 10px; overflow-y: auto; overscroll-behavior: contain; }
+/* Deliberately no `overflow: hidden` here: with the row floor above, the card never needs to clip,
+   and leaving the clip in place would only let a future overflow disappear quietly again. */
+.detail-provider { padding: 11px 13px 10px; border: 1px solid rgba(255, 255, 255, 0.68); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56); }
 .detail-provider { background: rgba(252, 253, 255, 0.9); }
 .detail-provider { background: linear-gradient(145deg, color-mix(in srgb, var(--provider-accent, #7d8894) 7%, rgba(255, 255, 255, 0.94)), color-mix(in srgb, var(--provider-accent, #7d8894) 22%, rgba(255, 255, 255, 0.85))); }
-/* Three still fit the 320×320 panel once the rows are tightened. */
+/* Three providers get tighter rows so they usually fit the 320×320 panel without scrolling. This
+   is a comfort optimisation only — if the content still does not fit (extra scoped buckets, say),
+   the row floor above wins and the panel scrolls instead of trimming anything. */
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-provider { padding: 7px 11px 6px; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-primary { margin-top: 3px; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong { font-size: 20px; }

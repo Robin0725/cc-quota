@@ -188,12 +188,6 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
 });
 
 /**
- * Above this count the panel keeps its fixed window size and scrolls instead of shrinking rows
- * into illegibility. Three still fit; the CSS grid switches to a fixed row height past it.
- */
-const MAX_UNSCROLLED_PROVIDERS = 4;
-
-/**
  * The panel's ambient backdrop: one soft glow per provider actually on screen, walked along the
  * same diagonal the hand-tuned blue/orange pair used to sit on. Two providers land exactly where
  * the old hardcoded stops were; one centres the single glow; four spread evenly without crowding.
@@ -243,7 +237,9 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
       <header className="details-header">
         <div><span>CC</span><strong>{labels.title}</strong></div>
       </header>
-      <div className={`details-providers${snapshots.length > MAX_UNSCROLLED_PROVIDERS ? " details-providers--scroll" : ""}`}>
+      {/* Scrolling is decided by CSS overflow, not by counting providers here: how tall a card is
+          depends on its content, so a count could never be the right trigger. */}
+      <div className="details-providers">
         {snapshots.length > 0 ? snapshots.map((snapshot) => {
           const selected = preferredWindow(snapshot);
           const percent = selected ? clampPercent(selected.value.remainingPercent) : null;
