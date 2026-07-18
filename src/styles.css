@@ -146,7 +146,11 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .details-providers { flex: 1 1 auto; min-height: 0; display: grid; grid-auto-rows: minmax(min-content, 1fr); gap: 10px; overflow-y: auto; overscroll-behavior: contain; }
 /* Deliberately no `overflow: hidden` here: with the row floor above, the card never needs to clip,
    and leaving the clip in place would only let a future overflow disappear quietly again. */
-.detail-provider { padding: 11px 13px 10px; border: 1px solid rgba(255, 255, 255, 0.68); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56); }
+/* Column flex with `space-between`: grid rows stretch the card past its content height, and
+   without this the slack pools as dead space under the last line of every card. Spreading it
+   between the card's blocks keeps the vertical rhythm instead. No heights are set anywhere, so
+   the `min-content` row floor above still decides when the panel scrolls. */
+.detail-provider { display: flex; flex-direction: column; justify-content: space-between; padding: 11px 13px 10px; border: 1px solid rgba(255, 255, 255, 0.68); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56); }
 .detail-provider { background: rgba(252, 253, 255, 0.9); }
 .detail-provider { background: linear-gradient(145deg, color-mix(in srgb, var(--provider-accent, #7d8894) 7%, rgba(255, 255, 255, 0.94)), color-mix(in srgb, var(--provider-accent, #7d8894) 22%, rgba(255, 255, 255, 0.85))); }
 /* Three providers, scoped buckets included, fit the 320×320 panel without scrolling.
