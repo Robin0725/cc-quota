@@ -1,5 +1,9 @@
 # CC
 
+> **macOS only.** There is no Windows or Linux build, and the source does not compile on them:
+> frontmost-app detection binds to AppKit, and Claude sign-in is read from the macOS Keychain.
+> Releases ship a single universal (Intel + Apple Silicon) macOS app.
+
 CC is a local-first macOS menu bar utility for checking Codex and Claude quota from their existing local sign-in state.
 
 This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https://github.com/change-42-yhmm/quota-float). The upstream license, copyright notice, and attribution are retained.

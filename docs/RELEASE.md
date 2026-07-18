@@ -4,6 +4,10 @@ The current source version is CC 0.3.12. The three manifests and a release tag m
 
 ## Validation
 
+CI enforces every command below except `npm run build`, on both `push` and `pull_request`, so a
+failing check blocks the merge rather than waiting to be noticed here. Run them locally anyway to
+avoid a round trip through CI.
+
 ```bash
 npm ci
 npm run check:version
