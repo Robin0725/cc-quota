@@ -29,7 +29,12 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: npm run tauri -- build --target universal-apple-darwin
       - name: Archive bundle
-        run: ditto -c -k --sequesterRsrc --keepParent src-tauri/target/universal-apple-darwin/release/bundle/macos/CC.app cc-macos-universal-unsigned.zip
+        # The bundle is named after productName, so hardcoding it here breaks the release the
+        # first time the product is renamed — and only after the tag is already pushed.
+        run: |
+          app="src-tauri/target/universal-apple-darwin/release/bundle/macos/$(jq -r .productName src-tauri/tauri.conf.json).app"
+          test -d "$app" || { echo "bundle not found: $app"; ls -1 src-tauri/target/universal-apple-darwin/release/bundle/macos/; exit 1; }
+          ditto -c -k --sequesterRsrc --keepParent "$app" cc-macos-universal-unsigned.zip
       - uses: actions/upload-artifact@v4
         with:
           name: cc-macos-universal-unsigned
