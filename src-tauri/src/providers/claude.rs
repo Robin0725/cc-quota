@@ -5,6 +5,79 @@ use serde_json::Value;
 use tokio::{process::Command, time::timeout};
 
 use crate::models::{ProviderSnapshot, ScopedWindow, UsageWindow};
+use crate::providers::{CapsulePalette, ProviderAdapter, ProviderDescriptor};
+
+pub static DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
+    id: "claude",
+    display_name: "Claude",
+    abbreviation: "CL",
+    palette: CapsulePalette {
+        border: [91, 49, 37, 255],
+        track: [91, 49, 37, 255],
+        fill_top: [184, 90, 58, 255],
+        fill_bottom: [184, 90, 58, 255],
+    },
+    accent_hex: "#b85a3a",
+    focus_hints: &["claude"],
+};
+
+pub struct ClaudeAdapter;
+
+#[async_trait::async_trait]
+impl ProviderAdapter for ClaudeAdapter {
+    fn descriptor(&self) -> &'static ProviderDescriptor {
+        &DESCRIPTOR
+    }
+
+    fn is_configured(&self) -> bool {
+        has_local_login()
+    }
+
+    async fn fetch_snapshot(&self, client: &reqwest::Client) -> ProviderSnapshot {
+        fetch_snapshot(client).await
+    }
+}
+
+/// Mirrors the sources `load_auth` reads from, without ever retrieving the secret: the keychain is
+/// queried for the entry's existence only (no `-w`), so nothing decrypted enters this process.
+fn has_local_login() -> bool {
+    if std::env::var("CLAUDE_CODE_OAUTH_TOKEN")
+        .map(|token| !token.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    if read_file_credentials()
+        .map(|raw| parse_auth(&raw).is_ok())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    keychain_entry_exists()
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_entry_exists() -> bool {
+    std::process::Command::new("/usr/bin/security")
+        .args([
+            "find-generic-password",
+            "-a",
+            &keychain_account(),
+            "-s",
+            KEYCHAIN_SERVICE,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_entry_exists() -> bool {
+    false
+}
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";

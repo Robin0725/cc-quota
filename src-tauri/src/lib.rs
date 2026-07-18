@@ -1,6 +1,5 @@
-mod claude;
-mod codex;
 mod models;
+mod providers;
 mod strings;
 
 use std::{
@@ -13,6 +12,7 @@ use std::{
 
 use chrono::{DateTime, Local, Utc};
 use models::{ProviderSnapshot, UsageWindow, WidgetPreferences};
+use providers::{CapsulePalette, ProviderDescriptorDto};
 use strings::{tray_copy, TrayCopy};
 use tauri::{
     image::Image,
@@ -25,14 +25,15 @@ use tauri_plugin_window_state::{Builder as WindowStateBuilder, StateFlags};
 
 const CACHE_TTL: Duration = Duration::from_secs(30);
 const BACKGROUND_REFRESH: Duration = Duration::from_secs(5 * 60);
-const TRAY_ICON_WIDTH: u32 = 172;
 const TRAY_ICON_HEIGHT: u32 = 36;
 const TRAY_CAPSULE_WIDTH: f32 = 80.0;
 const TRAY_CAPSULE_HEIGHT: f32 = 34.0;
-const TRAY_FIRST_CAPSULE_LEFT: f32 = 2.0;
-const TRAY_SECOND_CAPSULE_LEFT: f32 = 90.0;
-#[cfg(test)]
-const TRAY_PROVIDER_SPLIT: u32 = 86;
+/// Horizontal budget between two capsules, @2x. Part of it is spent on the icon's outer margin.
+const TRAY_CAPSULE_GAP: f32 = 12.0;
+/// Transparent margin kept on the far left and far right of the icon.
+const TRAY_CAPSULE_MARGIN: f32 = 2.0;
+/// A menu bar only has so much room; past this the capsules stop being readable.
+const TRAY_CAPSULE_WARN_COUNT: usize = 4;
 const TRAY_TIME_DOT_COUNT: u8 = 5;
 const COMPACT_WIDGET_WIDTH: f64 = 100.0;
 const COMPACT_WIDGET_HEIGHT: f64 = 100.0;
@@ -104,24 +105,6 @@ fn rounded_percent(window: &UsageWindow) -> u8 {
     window.remaining_percent.clamp(0.0, 100.0).round() as u8
 }
 
-fn classify_frontmost_application(
-    bundle_id: Option<&str>,
-    name: Option<&str>,
-) -> Option<&'static str> {
-    let bundle_id = bundle_id.unwrap_or_default().to_ascii_lowercase();
-    let name = name.unwrap_or_default().to_ascii_lowercase();
-    // The bundle id is the reliable check; the name is a fallback for when AppKit reports no
-    // identifier. It must track the product name, or focusing the app would count as "some other
-    // app" and flip the orb to Claude — the flicker this guard exists to prevent.
-    if bundle_id == "app.ccquota.desktop" || name == "cc" || name == "cc quota" {
-        return None;
-    }
-    if bundle_id == "com.openai.codex" || bundle_id.contains("codex") || name.contains("codex") {
-        return Some("codex");
-    }
-    Some("claude")
-}
-
 #[tauri::command]
 fn get_frontmost_provider() -> Option<String> {
     #[cfg(target_os = "macos")]
@@ -133,7 +116,12 @@ fn get_frontmost_provider() -> Option<String> {
             .bundleIdentifier()
             .map(|value| value.to_string());
         let name = application.localizedName().map(|value| value.to_string());
-        classify_frontmost_application(bundle_id.as_deref(), name.as_deref()).map(str::to_owned)
+        providers::classify_focus(
+            bundle_id.as_deref(),
+            name.as_deref(),
+            providers::default_focus_provider(),
+        )
+        .map(str::to_owned)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -215,8 +203,8 @@ fn coverage(x: u32, y: u32, left: f32, top: f32, width: f32, height: f32, radius
     hits as f32 / 16.0
 }
 
-fn blend_pixel(buffer: &mut [u8], x: u32, y: u32, color: [u8; 4], coverage: f32) {
-    let index = ((y * TRAY_ICON_WIDTH + x) * 4) as usize;
+fn blend_pixel(buffer: &mut [u8], width: u32, x: u32, y: u32, color: [u8; 4], coverage: f32) {
+    let index = ((y * width + x) * 4) as usize;
     let source_alpha = color[3] as f32 / 255.0 * coverage;
     let destination_alpha = buffer[index + 3] as f32 / 255.0;
     let output_alpha = source_alpha + destination_alpha * (1.0 - source_alpha);
@@ -234,8 +222,10 @@ fn blend_pixel(buffer: &mut [u8], x: u32, y: u32, color: [u8; 4], coverage: f32)
     buffer[index + 3] = (output_alpha * 255.0).round() as u8;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_rounded_rect(
     buffer: &mut [u8],
+    canvas_width: u32,
     left: f32,
     top: f32,
     width: f32,
@@ -245,20 +235,26 @@ fn draw_rounded_rect(
 ) {
     for y in top.floor().max(0.0) as u32..(top + height).ceil().min(TRAY_ICON_HEIGHT as f32) as u32
     {
-        for x in
-            left.floor().max(0.0) as u32..(left + width).ceil().min(TRAY_ICON_WIDTH as f32) as u32
+        for x in left.floor().max(0.0) as u32..(left + width).ceil().min(canvas_width as f32) as u32
         {
             let amount = coverage(x, y, left, top, width, height, radius);
             if amount > 0.0 {
-                blend_pixel(buffer, x, y, color, amount);
+                blend_pixel(buffer, canvas_width, x, y, color, amount);
             }
         }
     }
 }
 
-fn draw_circle(buffer: &mut [u8], center_x: f32, center_y: f32, radius: f32, color: [u8; 4]) {
+fn draw_circle(
+    buffer: &mut [u8],
+    canvas_width: u32,
+    center_x: f32,
+    center_y: f32,
+    radius: f32,
+    color: [u8; 4],
+) {
     let left = (center_x - radius).floor().max(0.0) as u32;
-    let right = (center_x + radius).ceil().min(TRAY_ICON_WIDTH as f32) as u32;
+    let right = (center_x + radius).ceil().min(canvas_width as f32) as u32;
     let top = (center_y - radius).floor().max(0.0) as u32;
     let bottom = (center_y + radius).ceil().min(TRAY_ICON_HEIGHT as f32) as u32;
     let radius_squared = radius * radius;
@@ -278,14 +274,16 @@ fn draw_circle(buffer: &mut [u8], center_x: f32, center_y: f32, radius: f32, col
                 }
             }
             if hits > 0 {
-                blend_pixel(buffer, x, y, color, hits as f32 / 16.0);
+                blend_pixel(buffer, canvas_width, x, y, color, hits as f32 / 16.0);
             }
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_line(
     buffer: &mut [u8],
+    canvas_width: u32,
     start_x: f32,
     start_y: f32,
     end_x: f32,
@@ -297,7 +295,7 @@ fn draw_line(
     let left = (start_x.min(end_x) - padding).floor().max(0.0) as u32;
     let right = (start_x.max(end_x) + padding)
         .ceil()
-        .min(TRAY_ICON_WIDTH as f32) as u32;
+        .min(canvas_width as f32) as u32;
     let top = (start_y.min(end_y) - padding).floor().max(0.0) as u32;
     let bottom = (start_y.max(end_y) + padding)
         .ceil()
@@ -330,7 +328,7 @@ fn draw_line(
                 }
             }
             if hits > 0 {
-                blend_pixel(buffer, x, y, color, hits as f32 / 16.0);
+                blend_pixel(buffer, canvas_width, x, y, color, hits as f32 / 16.0);
             }
         }
     }
@@ -356,16 +354,9 @@ struct CapsuleGeometry {
     radius: f32,
 }
 
-#[derive(Clone, Copy)]
-struct CapsulePalette {
-    border: [u8; 4],
-    track: [u8; 4],
-    fill_top: [u8; 4],
-    fill_bottom: [u8; 4],
-}
-
 fn draw_capsule_fill(
     buffer: &mut [u8],
+    canvas_width: u32,
     geometry: CapsuleGeometry,
     percent: u8,
     top_color: [u8; 4],
@@ -386,12 +377,18 @@ fn draw_capsule_fill(
     {
         let vertical_progress = ((y as f32 + 0.5 - top) / height).clamp(0.0, 1.0);
         let color = lerp_color(top_color, bottom_color, vertical_progress);
-        for x in left.floor().max(0.0) as u32..fill_right.ceil().min(TRAY_ICON_WIDTH as f32) as u32
-        {
+        for x in left.floor().max(0.0) as u32..fill_right.ceil().min(canvas_width as f32) as u32 {
             let amount = coverage(x, y, left, top, width, height, radius);
             if amount > 0.0 {
                 let horizontal_coverage = (fill_right - x as f32).clamp(0.0, 1.0);
-                blend_pixel(buffer, x, y, color, amount * horizontal_coverage);
+                blend_pixel(
+                    buffer,
+                    canvas_width,
+                    x,
+                    y,
+                    color,
+                    amount * horizontal_coverage,
+                );
             }
         }
     }
@@ -410,7 +407,14 @@ const DIGIT_SEGMENTS: [u8; 10] = [
     0b0110_1111,
 ];
 
-fn draw_digit(buffer: &mut [u8], left: f32, top: f32, digit: u8, color: [u8; 4]) {
+fn draw_digit(
+    buffer: &mut [u8],
+    canvas_width: u32,
+    left: f32,
+    top: f32,
+    digit: u8,
+    color: [u8; 4],
+) {
     let mask = DIGIT_SEGMENTS[digit.min(9) as usize];
     let thickness = 2.3;
     let segments = [
@@ -426,6 +430,7 @@ fn draw_digit(buffer: &mut [u8], left: f32, top: f32, digit: u8, color: [u8; 4])
         if mask & (1 << index) != 0 {
             draw_rounded_rect(
                 buffer,
+                canvas_width,
                 *segment_left,
                 *segment_top,
                 *width,
@@ -437,10 +442,11 @@ fn draw_digit(buffer: &mut [u8], left: f32, top: f32, digit: u8, color: [u8; 4])
     }
 }
 
-fn draw_percent_symbol(buffer: &mut [u8], left: f32, top: f32, color: [u8; 4]) {
-    draw_circle(buffer, left + 2.0, top + 3.4, 1.85, color);
+fn draw_percent_symbol(buffer: &mut [u8], canvas_width: u32, left: f32, top: f32, color: [u8; 4]) {
+    draw_circle(buffer, canvas_width, left + 2.0, top + 3.4, 1.85, color);
     draw_line(
         buffer,
+        canvas_width,
         left + 8.6,
         top + 1.7,
         left + 1.4,
@@ -448,7 +454,7 @@ fn draw_percent_symbol(buffer: &mut [u8], left: f32, top: f32, color: [u8; 4]) {
         1.85,
         color,
     );
-    draw_circle(buffer, left + 7.7, top + 18.4, 1.85, color);
+    draw_circle(buffer, canvas_width, left + 7.7, top + 18.4, 1.85, color);
 }
 
 fn tray_font() -> Option<&'static fontdue::Font> {
@@ -468,7 +474,12 @@ fn tray_font() -> Option<&'static fontdue::Font> {
     .as_ref()
 }
 
-fn draw_system_percent_label(buffer: &mut [u8], capsule_left: f32, percent: Option<u8>) -> bool {
+fn draw_system_percent_label(
+    buffer: &mut [u8],
+    canvas_width: u32,
+    capsule_left: f32,
+    percent: Option<u8>,
+) -> bool {
     use fontdue::layout::{
         CoordinateSystem, HorizontalAlign, Layout, LayoutSettings, TextStyle, VerticalAlign,
     };
@@ -507,10 +518,17 @@ fn draw_system_percent_label(buffer: &mut [u8], capsule_left: f32, percent: Opti
                 }
                 let x = origin_x + column as i32;
                 let y = origin_y + row as i32;
-                if x >= 0 && x < TRAY_ICON_WIDTH as i32 && y >= 0 && y < TRAY_ICON_HEIGHT as i32 {
-                    blend_pixel(buffer, x as u32, y as u32, text_color, alpha);
-                    if x + 1 < TRAY_ICON_WIDTH as i32 {
-                        blend_pixel(buffer, (x + 1) as u32, y as u32, text_color, alpha * 0.22);
+                if x >= 0 && x < canvas_width as i32 && y >= 0 && y < TRAY_ICON_HEIGHT as i32 {
+                    blend_pixel(buffer, canvas_width, x as u32, y as u32, text_color, alpha);
+                    if x + 1 < canvas_width as i32 {
+                        blend_pixel(
+                            buffer,
+                            canvas_width,
+                            (x + 1) as u32,
+                            y as u32,
+                            text_color,
+                            alpha * 0.22,
+                        );
                     }
                 }
             }
@@ -519,8 +537,13 @@ fn draw_system_percent_label(buffer: &mut [u8], capsule_left: f32, percent: Opti
     true
 }
 
-fn draw_percent_label(buffer: &mut [u8], capsule_left: f32, percent: Option<u8>) {
-    if draw_system_percent_label(buffer, capsule_left, percent) {
+fn draw_percent_label(
+    buffer: &mut [u8],
+    canvas_width: u32,
+    capsule_left: f32,
+    percent: Option<u8>,
+) {
+    if draw_system_percent_label(buffer, canvas_width, capsule_left, percent) {
         return;
     }
     let text_color = [255, 255, 255, 244];
@@ -528,7 +551,16 @@ fn draw_percent_label(buffer: &mut [u8], capsule_left: f32, percent: Option<u8>)
     let Some(percent) = percent else {
         let dash_width = 12.0;
         let left = capsule_left + (TRAY_CAPSULE_WIDTH - dash_width) * 0.5;
-        draw_rounded_rect(buffer, left, 16.9, dash_width, 2.15, 1.08, text_color);
+        draw_rounded_rect(
+            buffer,
+            canvas_width,
+            left,
+            16.9,
+            dash_width,
+            2.15,
+            1.08,
+            text_color,
+        );
         return;
     };
 
@@ -544,6 +576,7 @@ fn draw_percent_label(buffer: &mut [u8], capsule_left: f32, percent: Option<u8>)
     for character in digits.bytes() {
         draw_digit(
             buffer,
+            canvas_width,
             left,
             top,
             character.saturating_sub(b'0'),
@@ -551,10 +584,16 @@ fn draw_percent_label(buffer: &mut [u8], capsule_left: f32, percent: Option<u8>)
         );
         left += digit_width + digit_gap;
     }
-    draw_percent_symbol(buffer, left - digit_gap + suffix_gap, top, text_color);
+    draw_percent_symbol(
+        buffer,
+        canvas_width,
+        left - digit_gap + suffix_gap,
+        top,
+        text_color,
+    );
 }
 
-fn draw_capsule_time_dots(buffer: &mut [u8], left: f32, hours: u8) {
+fn draw_capsule_time_dots(buffer: &mut [u8], canvas_width: u32, left: f32, hours: u8) {
     let spacing = 6.0;
     let start_x = left + TRAY_CAPSULE_WIDTH * 0.5
         - spacing * (TRAY_TIME_DOT_COUNT.saturating_sub(1) as f32) * 0.5;
@@ -563,15 +602,30 @@ fn draw_capsule_time_dots(buffer: &mut [u8], left: f32, hours: u8) {
 
     for index in 0..TRAY_TIME_DOT_COUNT {
         let center_x = start_x + index as f32 * spacing;
-        draw_circle(buffer, center_x, center_y, 1.25, [255, 255, 255, 48]);
+        draw_circle(
+            buffer,
+            canvas_width,
+            center_x,
+            center_y,
+            1.25,
+            [255, 255, 255, 48],
+        );
         if index < lit_hours {
-            draw_circle(buffer, center_x, center_y, 1.25, [255, 255, 255, 236]);
+            draw_circle(
+                buffer,
+                canvas_width,
+                center_x,
+                center_y,
+                1.25,
+                [255, 255, 255, 236],
+            );
         }
     }
 }
 
 fn draw_tray_capsule(
     buffer: &mut [u8],
+    canvas_width: u32,
     left: f32,
     percent: Option<u8>,
     time_hours: Option<u8>,
@@ -581,6 +635,7 @@ fn draw_tray_capsule(
     let radius = 17.0;
     draw_rounded_rect(
         buffer,
+        canvas_width,
         left,
         top,
         TRAY_CAPSULE_WIDTH,
@@ -594,6 +649,7 @@ fn draw_tray_capsule(
     let inner_height = TRAY_CAPSULE_HEIGHT - 2.4;
     draw_rounded_rect(
         buffer,
+        canvas_width,
         inner_left,
         inner_top,
         inner_width,
@@ -604,6 +660,7 @@ fn draw_tray_capsule(
     if let Some(value) = percent {
         draw_capsule_fill(
             buffer,
+            canvas_width,
             CapsuleGeometry {
                 left: inner_left,
                 top: inner_top,
@@ -616,44 +673,93 @@ fn draw_tray_capsule(
             palette.fill_bottom,
         );
     }
-    draw_percent_label(buffer, left, percent);
+    draw_percent_label(buffer, canvas_width, left, percent);
     if let Some(value) = time_hours {
-        draw_capsule_time_dots(buffer, left, value);
+        draw_capsule_time_dots(buffer, canvas_width, left, value);
     }
 }
 
-fn tray_icon_rgba(
-    codex_percent: Option<u8>,
-    claude_percent: Option<u8>,
-    codex_time_hours: Option<u8>,
-    claude_time_hours: Option<u8>,
-) -> Vec<u8> {
-    let mut rgba = vec![0; (TRAY_ICON_WIDTH * TRAY_ICON_HEIGHT * 4) as usize];
-    draw_tray_capsule(
-        &mut rgba,
-        TRAY_FIRST_CAPSULE_LEFT,
-        codex_percent,
-        codex_time_hours,
-        CapsulePalette {
-            border: [25, 55, 82, 255],
-            track: [25, 55, 82, 255],
-            fill_top: [47, 111, 237, 255],
-            fill_bottom: [47, 111, 237, 255],
-        },
-    );
-    draw_tray_capsule(
-        &mut rgba,
-        TRAY_SECOND_CAPSULE_LEFT,
-        claude_percent,
-        claude_time_hours,
-        CapsulePalette {
-            border: [91, 49, 37, 255],
-            track: [91, 49, 37, 255],
-            fill_top: [184, 90, 58, 255],
-            fill_bottom: [184, 90, 58, 255],
-        },
-    );
+/// One capsule's worth of already-resolved drawing input.
+#[derive(Clone, Copy)]
+struct TrayCapsule {
+    palette: CapsulePalette,
+    percent: Option<u8>,
+    time_hours: Option<u8>,
+}
+
+/// Icon width for `count` capsules, per the provider registry contract §1.5.
+/// Two capsules must come out at the historical 172px.
+fn tray_icon_width(count: usize) -> u32 {
+    let count = count.max(1) as f32;
+    (count * TRAY_CAPSULE_WIDTH + (count - 1.0) * TRAY_CAPSULE_GAP).round() as u32
+}
+
+/// Left edge of capsule `index`. The outer margin is taken out of the gap budget so the first and
+/// last capsules keep `TRAY_CAPSULE_MARGIN` of breathing room against the icon edges.
+fn tray_capsule_left(index: usize, count: usize) -> f32 {
+    if count <= 1 {
+        return 0.0;
+    }
+    let inner_gap = TRAY_CAPSULE_GAP - 2.0 * TRAY_CAPSULE_MARGIN / (count - 1) as f32;
+    TRAY_CAPSULE_MARGIN + index as f32 * (TRAY_CAPSULE_WIDTH + inner_gap)
+}
+
+fn render_tray_capsules(capsules: &[TrayCapsule]) -> Vec<u8> {
+    let width = tray_icon_width(capsules.len());
+    let mut rgba = vec![0; (width * TRAY_ICON_HEIGHT * 4) as usize];
+    for (index, capsule) in capsules.iter().enumerate() {
+        draw_tray_capsule(
+            &mut rgba,
+            width,
+            tray_capsule_left(index, capsules.len()),
+            capsule.percent,
+            capsule.time_hours,
+            capsule.palette,
+        );
+    }
     rgba
+}
+
+/// Turns the snapshots the app currently holds into the menu bar bitmap.
+/// Returns the pixels alongside the width, which now varies with the provider count.
+fn tray_icon_rgba(snapshots: &[ProviderSnapshot], now: &DateTime<Utc>) -> (Vec<u8>, u32) {
+    if snapshots.len() > TRAY_CAPSULE_WARN_COUNT {
+        eprintln!(
+            "menu bar icon is showing {} providers; it may crowd the menu bar",
+            snapshots.len()
+        );
+    }
+    let capsules: Vec<TrayCapsule> = snapshots
+        .iter()
+        .filter_map(|snapshot| {
+            let descriptor = providers::find(&snapshot.provider)?.descriptor();
+            Some(TrayCapsule {
+                palette: descriptor.palette,
+                percent: snapshot_percent(Some(snapshot)),
+                time_hours: snapshot_time_hours(Some(snapshot), now),
+            })
+        })
+        .collect();
+    (
+        render_tray_capsules(&capsules),
+        tray_icon_width(capsules.len()),
+    )
+}
+
+/// Placeholder icon for before the first fetch lands.
+fn empty_tray_icon_rgba() -> (Vec<u8>, u32) {
+    let capsules: Vec<TrayCapsule> = providers::active()
+        .into_iter()
+        .map(|adapter| TrayCapsule {
+            palette: adapter.descriptor().palette,
+            percent: None,
+            time_hours: None,
+        })
+        .collect();
+    (
+        render_tray_capsules(&capsules),
+        tray_icon_width(capsules.len()),
+    )
 }
 
 fn reset_label(value: Option<&str>, copy: &TrayCopy) -> String {
@@ -713,30 +819,37 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
         .map_err(|_| "settings unavailable".to_string())?
         .clone();
     let copy = tray_copy(&preferences.language);
-    let codex = snapshots.iter().find(|item| item.provider == "codex");
-    let claude = snapshots.iter().find(|item| item.provider == "claude");
-    let tooltip = format!(
-        "{}\n{}",
-        provider_menu_line(codex, "Codex", copy),
-        provider_menu_line(claude, "Claude", copy)
-    );
+    // Registry order drives both the tooltip and the detail rows; the snapshots are only looked up.
+    let ordered: Vec<(
+        &'static providers::ProviderDescriptor,
+        Option<&ProviderSnapshot>,
+    )> = providers::active()
+        .into_iter()
+        .map(|adapter| {
+            let descriptor = adapter.descriptor();
+            let snapshot = snapshots.iter().find(|item| item.provider == descriptor.id);
+            (descriptor, snapshot)
+        })
+        .collect();
+    let tooltip = ordered
+        .iter()
+        .map(|(descriptor, snapshot)| provider_menu_line(*snapshot, descriptor.display_name, copy))
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    let codex_detail = MenuItem::with_id(
-        app,
-        "codex_detail",
-        provider_menu_line(codex, "Codex", copy),
-        false,
-        None::<&str>,
-    )
-    .map_err(|error| error.to_string())?;
-    let claude_detail = MenuItem::with_id(
-        app,
-        "claude_detail",
-        provider_menu_line(claude, "Claude", copy),
-        false,
-        None::<&str>,
-    )
-    .map_err(|error| error.to_string())?;
+    let detail_items = ordered
+        .iter()
+        .map(|(descriptor, snapshot)| {
+            MenuItem::with_id(
+                app,
+                format!("{}_detail", descriptor.id),
+                provider_menu_line(*snapshot, descriptor.display_name, copy),
+                false,
+                None::<&str>,
+            )
+            .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let separator_top = PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
     let toggle_widget = CheckMenuItem::with_id(
         app,
@@ -781,36 +894,43 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
     let separator_bottom = PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
     let quit = MenuItem::with_id(app, "quit", copy.quit, true, None::<&str>)
         .map_err(|error| error.to_string())?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &codex_detail,
-            &claude_detail,
-            &separator_top,
-            &toggle_widget,
-            &always_on_top,
-            &unlock,
-            &refresh,
-            &language,
-            &autostart,
-            &separator_bottom,
-            &quit,
-        ],
-    )
-    .map_err(|error| error.to_string())?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = Vec::new();
+    for item in &detail_items {
+        items.push(item);
+    }
+    for item in [
+        &separator_top as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+        &toggle_widget,
+        &always_on_top,
+        &unlock,
+        &refresh,
+        &language,
+        &autostart,
+        &separator_bottom,
+        &quit,
+    ] {
+        items.push(item);
+    }
+    let menu = Menu::with_items(app, &items).map_err(|error| error.to_string())?;
 
     let now = Utc::now();
+    // A provider with no reading yet still gets its capsule, drawn as the "—" placeholder.
+    let ordered_snapshots: Vec<ProviderSnapshot> = ordered
+        .iter()
+        .map(|(descriptor, snapshot)| {
+            snapshot.cloned().unwrap_or_else(|| {
+                ProviderSnapshot::failure_for(
+                    descriptor.id,
+                    &descriptor.display_name.to_uppercase(),
+                    "unavailable",
+                    "",
+                )
+            })
+        })
+        .collect();
+    let (pixels, width) = tray_icon_rgba(&ordered_snapshots, &now);
     tray.set_icon_with_as_template(
-        Some(Image::new_owned(
-            tray_icon_rgba(
-                snapshot_percent(codex),
-                snapshot_percent(claude),
-                snapshot_time_hours(codex, &now),
-                snapshot_time_hours(claude, &now),
-            ),
-            TRAY_ICON_WIDTH,
-            TRAY_ICON_HEIGHT,
-        )),
+        Some(Image::new_owned(pixels, width, TRAY_ICON_HEIGHT)),
         false,
     )
     .map_err(|error| error.to_string())?;
@@ -828,10 +948,18 @@ fn refresh_tray_from_cache(app: &AppHandle) {
 }
 
 fn unavailable_snapshots(message: &str) -> Vec<ProviderSnapshot> {
-    vec![
-        ProviderSnapshot::failure_for("codex", "CODEX", "unavailable", message),
-        ProviderSnapshot::failure_for("claude", "CLAUDE", "unavailable", message),
-    ]
+    providers::all()
+        .iter()
+        .map(|adapter| {
+            let descriptor = adapter.descriptor();
+            ProviderSnapshot::failure_for(
+                descriptor.id,
+                &descriptor.display_name.to_uppercase(),
+                "unavailable",
+                message,
+            )
+        })
+        .collect()
 }
 
 /// Mirrors `isSnapshotDisplayable` in `src/lib/format.ts`: past this age the last good reading is
@@ -905,17 +1033,19 @@ async fn fetch_snapshots_for_app(app: &AppHandle, force: bool) -> Vec<ProviderSn
         }
     }
 
-    let (codex_snapshot, claude_snapshot) = tokio::join!(
-        codex::fetch_snapshot(&state.client),
-        claude::fetch_snapshot(&state.client),
-    );
+    let incoming = futures_util::future::join_all(
+        providers::active()
+            .into_iter()
+            .map(|adapter| adapter.fetch_snapshot(&state.client)),
+    )
+    .await;
     let current = state
         .snapshot_cache
         .lock()
         .ok()
         .and_then(|cache| cache.as_ref().map(|(_, values)| values.clone()))
         .unwrap_or_default();
-    let values = merge_snapshots(&current, vec![codex_snapshot, claude_snapshot], &Utc::now());
+    let values = merge_snapshots(&current, incoming, &Utc::now());
     if let Ok(mut cache) = state.snapshot_cache.lock() {
         *cache = Some((Instant::now(), values.clone()));
     }
@@ -932,6 +1062,13 @@ async fn get_snapshots(app: AppHandle) -> Result<Vec<ProviderSnapshot>, String> 
 #[tauri::command]
 async fn refresh_snapshots(app: AppHandle) -> Result<Vec<ProviderSnapshot>, String> {
     Ok(fetch_snapshots_for_app(&app, true).await)
+}
+
+/// Single source of provider identity for the UI: ids, names, badges and accent colours all come
+/// from the Rust registry so nothing has to be kept in sync inside the frontend.
+#[tauri::command]
+fn get_provider_descriptors() -> Vec<ProviderDescriptorDto> {
+    providers::descriptor_dtos()
 }
 
 #[tauri::command]
@@ -1128,20 +1265,22 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
 
 fn setup_tray(app: &tauri::App, language: &str) -> tauri::Result<()> {
     let copy = tray_copy(language);
-    let codex_detail = MenuItem::with_id(
-        app,
-        "codex_detail",
-        provider_menu_line(None, "Codex", copy),
-        false,
-        None::<&str>,
-    )?;
-    let claude_detail = MenuItem::with_id(
-        app,
-        "claude_detail",
-        provider_menu_line(None, "Claude", copy),
-        false,
-        None::<&str>,
-    )?;
+    let descriptors: Vec<&'static providers::ProviderDescriptor> = providers::active()
+        .into_iter()
+        .map(|adapter| adapter.descriptor())
+        .collect();
+    let detail_items = descriptors
+        .iter()
+        .map(|descriptor| {
+            MenuItem::with_id(
+                app,
+                format!("{}_detail", descriptor.id),
+                provider_menu_line(None, descriptor.display_name, copy),
+                false,
+                None::<&str>,
+            )
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
     let separator_top = PredefinedMenuItem::separator(app)?;
     let toggle_widget = CheckMenuItem::with_id(
         app,
@@ -1154,28 +1293,35 @@ fn setup_tray(app: &tauri::App, language: &str) -> tauri::Result<()> {
     let refresh = MenuItem::with_id(app, "refresh", copy.refresh_now, true, None::<&str>)?;
     let separator_bottom = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", copy.quit, true, None::<&str>)?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &codex_detail,
-            &claude_detail,
-            &separator_top,
-            &toggle_widget,
-            &refresh,
-            &separator_bottom,
-            &quit,
-        ],
-    )?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = Vec::new();
+    for item in &detail_items {
+        items.push(item);
+    }
+    for item in [
+        &separator_top as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+        &toggle_widget,
+        &refresh,
+        &separator_bottom,
+        &quit,
+    ] {
+        items.push(item);
+    }
+    let menu = Menu::with_items(app, &items)?;
+    let (pixels, width) = empty_tray_icon_rgba();
+    let tooltip = format!(
+        "CC Quota · {}",
+        descriptors
+            .iter()
+            .map(|descriptor| descriptor.display_name)
+            .collect::<Vec<_>>()
+            .join(" & ")
+    );
     TrayIconBuilder::with_id("main")
-        .icon(Image::new_owned(
-            tray_icon_rgba(None, None, None, None),
-            TRAY_ICON_WIDTH,
-            TRAY_ICON_HEIGHT,
-        ))
+        .icon(Image::new_owned(pixels, width, TRAY_ICON_HEIGHT))
         .icon_as_template(false)
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .tooltip("CC Quota · Codex & Claude")
+        .tooltip(tooltip)
         .on_menu_event(|app, event| handle_tray_menu(app, event.id.as_ref()))
         .build(app)?;
     Ok(())
@@ -1287,7 +1433,8 @@ pub fn run() {
             set_widget_locked,
             set_widget_always_on_top,
             set_widget_visible,
-            get_frontmost_provider
+            get_frontmost_provider,
+            get_provider_descriptors
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -1313,10 +1460,57 @@ pub fn run() {
 #[cfg(test)]
 mod tray_icon_tests {
     use super::{
-        classify_frontmost_application, merge_snapshots, time_remaining_hours, tray_icon_rgba,
-        ProviderSnapshot, UsageWindow, TRAY_ICON_HEIGHT, TRAY_ICON_WIDTH, TRAY_PROVIDER_SPLIT,
+        empty_tray_icon_rgba, merge_snapshots, providers, render_tray_capsules,
+        time_remaining_hours, tray_capsule_left, tray_icon_rgba, tray_icon_width, ProviderSnapshot,
+        TrayCapsule, UsageWindow, TRAY_CAPSULE_WIDTH, TRAY_ICON_HEIGHT,
     };
     use chrono::{TimeZone, Utc};
+
+    /// Capsule counts every layout test runs against, so nothing silently assumes "exactly two".
+    const CAPSULE_COUNTS: [usize; 4] = [1, 2, 3, 4];
+
+    /// The width and capsule origins the app shipped with. Two capsules must still land here
+    /// pixel for pixel, otherwise the menu bar look changed.
+    const HISTORICAL_WIDTH: u32 = 172;
+    const HISTORICAL_LEFTS: [f32; 2] = [2.0, 90.0];
+
+    fn palette(index: usize) -> providers::CapsulePalette {
+        let registry = providers::all();
+        registry[index % registry.len()].descriptor().palette
+    }
+
+    fn capsules(values: &[(Option<u8>, Option<u8>)]) -> Vec<TrayCapsule> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, (percent, time_hours))| TrayCapsule {
+                palette: palette(index),
+                percent: *percent,
+                time_hours: *time_hours,
+            })
+            .collect()
+    }
+
+    fn uniform(count: usize, percent: Option<u8>, time_hours: Option<u8>) -> Vec<TrayCapsule> {
+        capsules(&vec![(percent, time_hours); count])
+    }
+
+    fn icon(values: &[(Option<u8>, Option<u8>)]) -> Vec<u8> {
+        render_tray_capsules(&capsules(values))
+    }
+
+    /// Half-open pixel range covered by capsule `index`.
+    fn capsule_bounds(index: usize, count: usize) -> (u32, u32) {
+        let left = tray_capsule_left(index, count);
+        (left as u32, (left + TRAY_CAPSULE_WIDTH).ceil() as u32)
+    }
+
+    /// Midpoint of the transparent gap between capsule `index` and the next one.
+    fn gap_center(index: usize, count: usize) -> u32 {
+        let end = tray_capsule_left(index, count) + TRAY_CAPSULE_WIDTH;
+        let next = tray_capsule_left(index + 1, count);
+        ((end + next) * 0.5).round() as u32
+    }
 
     fn count_provider_pixels(rgba: &[u8], blue: bool) -> usize {
         rgba.chunks_exact(4)
@@ -1344,12 +1538,12 @@ mod tray_icon_tests {
             .count()
     }
 
-    fn count_text_pixels(rgba: &[u8], left: u32, right: u32) -> usize {
+    fn count_text_pixels(rgba: &[u8], width: u32, left: u32, right: u32) -> usize {
         rgba.chunks_exact(4)
             .enumerate()
             .filter(|(index, pixel)| {
-                let x = *index as u32 % TRAY_ICON_WIDTH;
-                let y = *index as u32 / TRAY_ICON_WIDTH;
+                let x = *index as u32 % width;
+                let y = *index as u32 / width;
                 x >= left + 10
                     && x < right.saturating_sub(10)
                     && (7..30).contains(&y)
@@ -1361,11 +1555,11 @@ mod tray_icon_tests {
             .count()
     }
 
-    fn region_pixels(rgba: &[u8], left: u32, right: u32) -> Vec<[u8; 4]> {
+    fn region_pixels(rgba: &[u8], width: u32, left: u32, right: u32) -> Vec<[u8; 4]> {
         rgba.chunks_exact(4)
             .enumerate()
             .filter_map(|(index, pixel)| {
-                let x = index as u32 % TRAY_ICON_WIDTH;
+                let x = index as u32 % width;
                 (x >= left && x < right).then(|| [pixel[0], pixel[1], pixel[2], pixel[3]])
             })
             .collect()
@@ -1445,72 +1639,194 @@ mod tray_icon_tests {
         assert!(merged[0].short_window.is_none());
     }
 
+    /// The contract's §1.5 formula, checked at the count the app shipped with: the icon must stay
+    /// 172px wide with capsules at x=2 and x=90, which is what makes the bitmap byte-identical to
+    /// the pre-registry build.
+    #[test]
+    fn two_capsules_reproduce_the_shipped_geometry() {
+        assert_eq!(tray_icon_width(2), HISTORICAL_WIDTH);
+        for (index, expected) in HISTORICAL_LEFTS.iter().enumerate() {
+            assert_eq!(tray_capsule_left(index, 2), *expected);
+        }
+    }
+
+    #[test]
+    fn icon_width_follows_the_capsule_count() {
+        for count in CAPSULE_COUNTS {
+            let expected = count as f32 * TRAY_CAPSULE_WIDTH + (count as f32 - 1.0) * 12.0;
+            assert_eq!(tray_icon_width(count), expected.round() as u32);
+            // Capsules stay inside the canvas and never overlap.
+            let (_, first_right) = capsule_bounds(0, count);
+            assert!(first_right <= tray_icon_width(count));
+            for index in 1..count {
+                let (left, _) = capsule_bounds(index, count);
+                let (_, previous_right) = capsule_bounds(index - 1, count);
+                assert!(left >= previous_right, "capsules overlap at count {count}");
+            }
+            let (_, last_right) = capsule_bounds(count - 1, count);
+            assert!(
+                last_right <= tray_icon_width(count),
+                "capsule overflows at count {count}"
+            );
+        }
+    }
+
     #[test]
     fn tray_icon_has_expected_rgba_dimensions() {
-        let rgba = tray_icon_rgba(Some(74), Some(58), Some(62), Some(41));
-        assert_eq!(
-            rgba.len(),
-            (TRAY_ICON_WIDTH * TRAY_ICON_HEIGHT * 4) as usize
-        );
+        for count in CAPSULE_COUNTS {
+            let rgba = render_tray_capsules(&uniform(count, Some(74), Some(3)));
+            assert_eq!(
+                rgba.len(),
+                (tray_icon_width(count) * TRAY_ICON_HEIGHT * 4) as usize
+            );
+        }
     }
 
     #[test]
     fn provider_fill_pixels_increase_with_quota_level() {
-        let empty = tray_icon_rgba(Some(0), Some(0), Some(50), Some(50));
-        let full = tray_icon_rgba(Some(100), Some(100), Some(50), Some(50));
-        assert!(count_filled_pixels(&full, true) > count_filled_pixels(&empty, true) + 900);
-        assert!(count_filled_pixels(&full, false) > count_filled_pixels(&empty, false) + 900);
+        for count in CAPSULE_COUNTS {
+            let empty = render_tray_capsules(&uniform(count, Some(0), Some(50)));
+            let full = render_tray_capsules(&uniform(count, Some(100), Some(50)));
+            assert!(count_filled_pixels(&full, true) > count_filled_pixels(&empty, true) + 900);
+            if count > 1 {
+                assert!(
+                    count_filled_pixels(&full, false) > count_filled_pixels(&empty, false) + 900
+                );
+            }
+        }
     }
 
     #[test]
     fn unknown_provider_keeps_color_identity_and_draws_placeholder() {
-        let unknown = tray_icon_rgba(None, None, None, None);
-        assert!(count_provider_pixels(&unknown, true) > 300);
-        assert!(count_provider_pixels(&unknown, false) > 300);
-        assert!(count_text_pixels(&unknown, 0, TRAY_PROVIDER_SPLIT) > 12);
-        assert!(count_text_pixels(&unknown, TRAY_PROVIDER_SPLIT, TRAY_ICON_WIDTH) > 12);
+        for count in CAPSULE_COUNTS {
+            let unknown = render_tray_capsules(&uniform(count, None, None));
+            let width = tray_icon_width(count);
+            assert!(count_provider_pixels(&unknown, true) > 300);
+            if count > 1 {
+                assert!(count_provider_pixels(&unknown, false) > 300);
+            }
+            for index in 0..count {
+                let (left, right) = capsule_bounds(index, count);
+                assert!(
+                    count_text_pixels(&unknown, width, left, right) > 12,
+                    "no placeholder in capsule {index} of {count}"
+                );
+            }
+        }
     }
 
     #[test]
-    fn percentage_is_rendered_inside_both_capsules() {
-        let icon = tray_icon_rgba(Some(100), Some(7), Some(50), Some(50));
-        assert!(count_text_pixels(&icon, 0, TRAY_PROVIDER_SPLIT) > 80);
-        assert!(count_text_pixels(&icon, TRAY_PROVIDER_SPLIT, TRAY_ICON_WIDTH) > 50);
-        assert_ne!(icon, tray_icon_rgba(Some(99), Some(8), Some(50), Some(50)));
+    fn percentage_is_rendered_inside_every_capsule() {
+        for count in CAPSULE_COUNTS {
+            let values: Vec<(Option<u8>, Option<u8>)> = (0..count)
+                .map(|index| (Some(if index == 0 { 100 } else { 7 }), Some(50)))
+                .collect();
+            let rendered = icon(&values);
+            let width = tray_icon_width(count);
+            for index in 0..count {
+                let (left, right) = capsule_bounds(index, count);
+                assert!(
+                    count_text_pixels(&rendered, width, left, right) > 50,
+                    "no percentage in capsule {index} of {count}"
+                );
+            }
+            let nudged: Vec<(Option<u8>, Option<u8>)> = (0..count)
+                .map(|index| (Some(if index == 0 { 99 } else { 8 }), Some(50)))
+                .collect();
+            assert_ne!(rendered, icon(&nudged));
+        }
     }
 
     #[test]
     fn zero_and_unknown_are_visually_distinct() {
-        assert_ne!(
-            tray_icon_rgba(Some(0), Some(0), Some(0), Some(0)),
-            tray_icon_rgba(None, None, None, None)
-        );
+        for count in CAPSULE_COUNTS {
+            assert_ne!(
+                render_tray_capsules(&uniform(count, Some(0), Some(0))),
+                render_tray_capsules(&uniform(count, None, None))
+            );
+        }
     }
 
     #[test]
     fn providers_update_without_changing_the_other_capsule() {
-        let baseline = tray_icon_rgba(Some(24), Some(81), Some(64), Some(36));
-        let codex_changed = tray_icon_rgba(Some(68), Some(81), Some(64), Some(36));
-        let claude_changed = tray_icon_rgba(Some(24), Some(37), Some(64), Some(36));
-
-        assert_eq!(
-            region_pixels(&baseline, TRAY_PROVIDER_SPLIT, TRAY_ICON_WIDTH),
-            region_pixels(&codex_changed, TRAY_PROVIDER_SPLIT, TRAY_ICON_WIDTH)
-        );
-        assert_eq!(
-            region_pixels(&baseline, 0, TRAY_PROVIDER_SPLIT),
-            region_pixels(&claude_changed, 0, TRAY_PROVIDER_SPLIT)
-        );
+        for count in CAPSULE_COUNTS {
+            let width = tray_icon_width(count);
+            let baseline_values: Vec<(Option<u8>, Option<u8>)> =
+                (0..count).map(|_| (Some(24), Some(4))).collect();
+            let baseline = icon(&baseline_values);
+            for changed in 0..count {
+                let mut values = baseline_values.clone();
+                values[changed] = (Some(68), Some(4));
+                let updated = icon(&values);
+                for other in 0..count {
+                    if other == changed {
+                        continue;
+                    }
+                    let (left, right) = capsule_bounds(other, count);
+                    assert_eq!(
+                        region_pixels(&baseline, width, left, right),
+                        region_pixels(&updated, width, left, right),
+                        "capsule {other} moved when {changed} changed (count {count})"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
-    fn capsule_corners_and_center_gap_remain_transparent() {
-        let icon = tray_icon_rgba(Some(100), Some(100), Some(100), Some(100));
-        let alpha_at = |x: u32, y: u32| icon[((y * TRAY_ICON_WIDTH + x) * 4 + 3) as usize];
+    fn capsule_corners_and_center_gaps_remain_transparent() {
+        for count in CAPSULE_COUNTS {
+            let rendered = render_tray_capsules(&uniform(count, Some(100), Some(100)));
+            let width = tray_icon_width(count);
+            let alpha_at = |x: u32, y: u32| rendered[((y * width + x) * 4 + 3) as usize];
 
-        assert_eq!(alpha_at(0, 0), 0);
-        assert_eq!(alpha_at(TRAY_ICON_WIDTH - 1, 0), 0);
-        assert_eq!(alpha_at(TRAY_PROVIDER_SPLIT, TRAY_ICON_HEIGHT / 2), 0);
+            assert_eq!(alpha_at(0, 0), 0, "top-left is opaque at count {count}");
+            assert_eq!(
+                alpha_at(width - 1, 0),
+                0,
+                "top-right is opaque at count {count}"
+            );
+            for index in 0..count.saturating_sub(1) {
+                assert_eq!(
+                    alpha_at(gap_center(index, count), TRAY_ICON_HEIGHT / 2),
+                    0,
+                    "gap {index} is opaque at count {count}"
+                );
+            }
+        }
+    }
+
+    /// The snapshot-driven entry point must agree with the capsule-level renderer and pick each
+    /// provider's own palette out of the registry.
+    #[test]
+    fn snapshot_entry_point_matches_the_capsule_renderer() {
+        let now = shortly_after_snapshot();
+        let snapshots: Vec<ProviderSnapshot> = providers::all()
+            .iter()
+            .map(|adapter| successful_snapshot(adapter.descriptor().id, 74.0))
+            .collect();
+        let (pixels, width) = tray_icon_rgba(&snapshots, &now);
+        assert_eq!(width, tray_icon_width(snapshots.len()));
+        assert_eq!(
+            pixels,
+            render_tray_capsules(&uniform(snapshots.len(), Some(74), Some(2)))
+        );
+    }
+
+    /// An unregistered provider id must not be drawn rather than crash or borrow another's colour.
+    #[test]
+    fn snapshots_from_unknown_providers_are_skipped() {
+        let now = shortly_after_snapshot();
+        let (_, width) = tray_icon_rgba(&[successful_snapshot("not-a-provider", 50.0)], &now);
+        assert_eq!(width, tray_icon_width(0));
+    }
+
+    #[test]
+    fn placeholder_icon_has_one_capsule_per_shown_provider() {
+        let (pixels, width) = empty_tray_icon_rgba();
+        let count = providers::active().len();
+        assert_eq!(width, tray_icon_width(count));
+        assert_eq!(pixels.len(), (width * TRAY_ICON_HEIGHT * 4) as usize);
     }
 
     #[test]
@@ -1518,9 +1834,15 @@ mod tray_icon_tests {
         let Ok(path) = std::env::var("CC_TRAY_PREVIEW_PPM") else {
             return;
         };
-        let rgba = tray_icon_rgba(Some(88), Some(96), Some(4), Some(2));
+        let count = providers::all().len();
+        // Same readings the pre-registry build previewed with, so the two images stay comparable.
+        let readings = [(Some(88), Some(4)), (Some(96), Some(2))];
+        let values: Vec<(Option<u8>, Option<u8>)> =
+            (0..count).map(|index| readings[index % 2]).collect();
+        let rgba = icon(&values);
+        let width = tray_icon_width(count);
         let background = [236_u8, 239_u8, 243_u8];
-        let mut ppm = format!("P6\n{} {}\n255\n", TRAY_ICON_WIDTH, TRAY_ICON_HEIGHT).into_bytes();
+        let mut ppm = format!("P6\n{} {}\n255\n", width, TRAY_ICON_HEIGHT).into_bytes();
         for pixel in rgba.chunks_exact(4) {
             let alpha = pixel[3] as u16;
             for channel in 0..3 {
@@ -1568,9 +1890,11 @@ mod tray_icon_tests {
 
     #[test]
     fn hour_dots_change_with_fixed_quota_values() {
-        let early = tray_icon_rgba(Some(73), Some(64), Some(5), Some(4));
-        let late = tray_icon_rgba(Some(73), Some(64), Some(1), Some(1));
-        assert_ne!(early, late);
+        for count in CAPSULE_COUNTS {
+            let early = render_tray_capsules(&uniform(count, Some(73), Some(5)));
+            let late = render_tray_capsules(&uniform(count, Some(73), Some(1)));
+            assert_ne!(early, late);
+        }
     }
 
     #[test]
@@ -1624,30 +1948,15 @@ mod tray_icon_tests {
         );
     }
 
+    /// Every registered provider must be reachable from the failure path, or a signed-out account
+    /// would simply vanish from the menu instead of explaining itself.
     #[test]
-    fn maps_codex_bundle_to_codex_and_every_other_app_to_claude() {
-        assert_eq!(
-            classify_frontmost_application(Some("com.openai.codex"), Some("ChatGPT")),
-            Some("codex")
-        );
-        assert_eq!(
-            classify_frontmost_application(Some("com.anthropic.claudefordesktop"), Some("Claude")),
-            Some("claude")
-        );
-        assert_eq!(
-            classify_frontmost_application(Some("com.apple.finder"), Some("Finder")),
-            Some("claude")
-        );
-    }
-
-    #[test]
-    fn ignores_cc_itself_to_avoid_focus_flicker() {
-        assert_eq!(
-            classify_frontmost_application(Some("app.ccquota.desktop"), Some("CC Quota")),
-            None
-        );
-        // Falls back to the product name when AppKit reports no bundle identifier.
-        assert_eq!(classify_frontmost_application(None, Some("CC Quota")), None);
-        assert_eq!(classify_frontmost_application(None, Some("CC")), None);
+    fn unavailable_snapshots_cover_the_whole_registry() {
+        let values = super::unavailable_snapshots("offline");
+        assert_eq!(values.len(), providers::all().len());
+        for (snapshot, adapter) in values.iter().zip(providers::all()) {
+            assert_eq!(snapshot.provider, adapter.descriptor().id);
+            assert_eq!(snapshot.status, "unavailable");
+        }
     }
 }

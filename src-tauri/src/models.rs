@@ -100,10 +100,13 @@ impl Default for WidgetPreferences {
 impl WidgetPreferences {
     pub fn normalized(mut self) -> Self {
         self.auto_rotate_seconds = self.auto_rotate_seconds.clamp(5, 300);
-        if !matches!(
-            self.pinned_provider.as_deref(),
-            Some("codex") | Some("claude")
-        ) {
+        // Validated against the registry rather than a literal list, so a newly registered
+        // provider becomes pinnable without touching this file.
+        if !self
+            .pinned_provider
+            .as_deref()
+            .is_some_and(crate::providers::is_known)
+        {
             self.pinned_provider = None;
         }
         if self.language != "en" && self.language != "zh-CN" {

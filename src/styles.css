@@ -35,14 +35,19 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
   touch-action: none;
 }
 
-.quota-orb--codex {
-  background: linear-gradient(145deg, rgba(249, 253, 255, 0.92) 0%, rgba(213, 236, 255, 0.84) 54%, rgba(221, 247, 243, 0.78) 100%);
-}
-
-.quota-orb--claude {
-  color: #2c1c17;
-  background: linear-gradient(145deg, rgba(255, 252, 248, 0.93) 0%, rgba(255, 226, 210, 0.87) 54%, rgba(238, 190, 164, 0.78) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 5px 16px rgba(112, 61, 37, 0.11);
+/* Provider tint. Every hue in here is mixed from `--provider-accent`, which the component sets
+   inline from the descriptor — there is no per-provider rule and no provider inherits another's
+   colour. The fallback is deliberately neutral grey, never a real provider's accent. */
+.quota-orb {
+  /* Plain fallback first: WebKit older than the `color-mix` cut-off drops the rule below and
+     would otherwise leave the orb with no surface at all. */
+  background: rgba(250, 252, 254, 0.88);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--provider-accent, #7d8894) 4%, rgba(252, 254, 255, 0.92)) 0%,
+    color-mix(in srgb, var(--provider-accent, #7d8894) 18%, rgba(255, 255, 255, 0.86)) 54%,
+    color-mix(in srgb, var(--provider-accent, #7d8894) 24%, rgba(255, 255, 255, 0.79)) 100%
+  );
 }
 
 .quota-orb--empty { color: rgba(31, 39, 49, 0.58); background: rgba(238, 242, 246, 0.82); }
@@ -68,7 +73,6 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
   line-height: 1;
   transform: translateX(-50%);
 }
-.quota-orb--claude .orb-source { color: rgba(63, 37, 28, 0.56); }
 .orb-source i { width: 2px; height: 2px; border-radius: 50%; background: currentColor; }
 .orb-value { display: flex; align-items: flex-end; margin-top: 8px; font-size: 28px; font-weight: 560; letter-spacing: -0.065em; line-height: 1; font-variant-numeric: tabular-nums; }
 .orb-value small { margin: 0 0 3px 2px; font-size: 10px; font-weight: 760; letter-spacing: 0; }
@@ -116,28 +120,33 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
   backdrop-filter: blur(22px) saturate(1.12);
   touch-action: none;
 }
-.quota-details::before {
-  position: absolute;
-  inset: -40%;
-  z-index: -1;
-  content: "";
-  background:
-    radial-gradient(circle at 22% 25%, rgba(107, 178, 255, 0.25), transparent 34%),
-    radial-gradient(circle at 82% 78%, rgba(221, 115, 76, 0.22), transparent 36%);
-}
+/* A real element rather than `::before`: the glow layer is one gradient per live provider, and
+   only the component knows how many there are. Inline styles cannot reach a pseudo-element.
+   With no descriptors yet the layer simply stays empty, so the panel reads neutral — it never
+   falls back to the two colours that happened to ship first. */
+.details-glow { position: absolute; inset: -40%; z-index: -1; pointer-events: none; }
 .details-header { height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .details-header div { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .details-header div > span { width: 27px; height: 22px; display: grid; place-items: center; border-radius: 8px; color: white; background: #263341; font-size: 9px; font-weight: 780; letter-spacing: 0.08em; }
 .details-header strong { font-size: 15px; font-weight: 690; letter-spacing: -0.02em; }
-.details-providers { height: calc(100% - 42px); display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.details-providers--single { grid-template-rows: minmax(0, 1fr); }
+/* Implicit rows rather than `repeat(2, ...)`: the panel takes however many providers the registry
+   reports, splitting its fixed height evenly with no count baked into the stylesheet. */
+.details-providers { height: calc(100% - 42px); display: grid; grid-auto-rows: minmax(0, 1fr); gap: 10px; }
+/* Past four the rows would be unreadable, so the window keeps its size and the list scrolls. */
+.details-providers--scroll { grid-auto-rows: minmax(66px, auto); align-content: start; overflow-y: auto; overscroll-behavior: contain; }
 .detail-provider { min-height: 0; padding: 11px 13px 10px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.68); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56); }
-.detail-provider--codex { background: linear-gradient(145deg, rgba(235, 247, 255, 0.94), rgba(205, 231, 255, 0.84)); }
-.detail-provider--claude { background: linear-gradient(145deg, rgba(255, 245, 238, 0.94), rgba(246, 211, 193, 0.84)); }
+.detail-provider { background: rgba(252, 253, 255, 0.9); }
+.detail-provider { background: linear-gradient(145deg, color-mix(in srgb, var(--provider-accent, #7d8894) 7%, rgba(255, 255, 255, 0.94)), color-mix(in srgb, var(--provider-accent, #7d8894) 22%, rgba(255, 255, 255, 0.85))); }
+/* Three still fit the 320×320 panel once the rows are tightened. */
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-provider { padding: 7px 11px 6px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary { margin-top: 3px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong { font-size: 20px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong small { font-size: 9px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-progress { margin-top: 5px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-meta { margin-top: 4px; }
 .detail-provider-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .detail-provider-heading div { display: flex; align-items: center; gap: 6px; }
-.detail-provider-heading i { width: 7px; height: 7px; border-radius: 50%; background: #2f6fed; box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.1); }
-.detail-provider--claude .detail-provider-heading i { background: #b85a3a; box-shadow: 0 0 0 3px rgba(184, 90, 58, 0.1); }
+.detail-provider-heading i { width: 7px; height: 7px; border-radius: 50%; background: var(--provider-accent, #7d8894); box-shadow: 0 0 0 3px color-mix(in srgb, var(--provider-accent, #7d8894) 10%, transparent); }
 .detail-provider-heading strong { font-size: 10px; font-weight: 780; letter-spacing: 0.08em; }
 .detail-provider-heading > span { color: rgba(23, 33, 44, 0.48); font-size: 8px; font-weight: 690; letter-spacing: 0.06em; }
 .detail-primary { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 5px; }
@@ -145,11 +154,10 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .detail-primary strong small { margin-left: 1px; font-size: 11px; font-weight: 760; letter-spacing: 0; }
 .detail-primary > span { color: rgba(23, 33, 44, 0.58); font-size: 9px; font-weight: 680; }
 .detail-progress { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: rgba(39, 57, 76, 0.11); }
-.detail-progress i { display: block; height: 100%; border-radius: inherit; background: #2f6fed; }
-.detail-provider--claude .detail-progress i { background: #b85a3a; }
-/* Matches the two-class specificity of the provider rules above, so tier colour wins for both. */
-.detail-provider .detail-progress--tier-caution i { background: #c8850f; }
-.detail-provider .detail-progress--tier-critical i { background: #b83725; }
+.detail-progress i { display: block; height: 100%; border-radius: inherit; background: var(--provider-accent, #7d8894); }
+/* Severity is orthogonal to provider: a low bar reads as low whoever it belongs to. */
+.detail-progress--tier-caution i { background: #c8850f; }
+.detail-progress--tier-critical i { background: #b83725; }
 .detail-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 570; }
 .detail-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Per-model buckets (e.g. Fable), shown only when the API reports one.

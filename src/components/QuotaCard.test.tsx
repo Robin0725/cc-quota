@@ -31,6 +31,17 @@ const claude: ProviderSnapshot = {
   weeklyWindow: { ...codex.weeklyWindow!, remainingPercent: 53 },
 };
 
+// A third provider the components have never been told about, standing in for anything the Rust
+// registry may add later.
+const kimicode: ProviderSnapshot = {
+  ...codex,
+  provider: "kimicode",
+  displayName: "KIMI CODE",
+  plan: "INTERMEDIATE",
+  shortWindow: { ...codex.shortWindow!, remainingPercent: 37 },
+  weeklyWindow: { ...codex.weeklyWindow!, remainingPercent: 44 },
+};
+
 afterEach(cleanup);
 
 describe("floating widget interactions", () => {
@@ -125,14 +136,64 @@ describe("floating widget interactions", () => {
     expect(container.querySelector(".detail-scoped")).toBeNull();
   });
 
-  it("renders both providers in the expanded detail view", () => {
-    render(<QuotaDetails snapshots={[codex, claude]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+  // Parameterised on purpose: the panel must render whatever the registry hands it, so the count
+  // is data rather than a constant. The three-provider row is what a `slice(0, 2)` would silently
+  // eat, which is exactly the bug this locks out.
+  it.each([
+    { label: "two providers", snapshots: [codex, claude], names: ["CODEX", "CLAUDE"], percents: ["84", "61"] },
+    { label: "three providers", snapshots: [codex, claude, kimicode], names: ["CODEX", "CLAUDE", "KIMI CODE"], percents: ["84", "61", "37"] },
+    { label: "one provider", snapshots: [codex], names: ["CODEX"], percents: ["84"] },
+  ])("renders every provider the registry reports ($label)", ({ snapshots, names, percents }) => {
+    render(<QuotaDetails snapshots={snapshots} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
 
-    expect(screen.getByText("CODEX")).toBeTruthy();
-    expect(screen.getByText("CLAUDE")).toBeTruthy();
-    expect(screen.getAllByRole("meter").map((item) => item.getAttribute("aria-valuenow"))).toEqual(["84", "61"]);
+    for (const name of names) expect(screen.getByText(name)).toBeTruthy();
+    expect(screen.getAllByRole("meter").map((item) => item.getAttribute("aria-valuenow"))).toEqual(percents);
     // The panel has no chrome of its own: collapsing is the orb's job, or Escape.
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("scrolls rather than resizing once more providers arrive than the panel can show", () => {
+    const many = [codex, claude, kimicode, { ...kimicode, provider: "d", displayName: "D" }, { ...kimicode, provider: "e", displayName: "E" }];
+    const { container } = render(<QuotaDetails snapshots={many} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelectorAll(".detail-provider")).toHaveLength(5);
+    expect(container.querySelector(".details-providers--scroll")).toBeTruthy();
+  });
+
+  it("takes the orb's provider mark and accent colour from the descriptor", () => {
+    const descriptors = { kimicode: { id: "kimicode", displayName: "Kimi Code", abbreviation: "KM", accentHex: "#7c5cd6" } };
+    const { container } = render(
+      <QuotaOrb snapshot={kimicode} descriptors={descriptors} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />,
+    );
+
+    expect(container.querySelector(".orb-source")?.textContent).toBe("KM5H");
+    expect(container.querySelector<HTMLElement>(".quota-orb")?.style.getPropertyValue("--provider-accent")).toBe("#7c5cd6");
+  });
+
+  // The backdrop used to be a hardcoded blue+orange pair, which would have gone on advertising two
+  // providers no matter how many were actually on screen.
+  it.each([1, 2, 3])("tints the panel backdrop from the providers actually shown (%i)", (count) => {
+    const all = [codex, claude, kimicode];
+    const descriptors = {
+      codex: { id: "codex", displayName: "Codex", abbreviation: "CX", accentHex: "#2f6fed" },
+      claude: { id: "claude", displayName: "Claude", abbreviation: "CL", accentHex: "#b85a3a" },
+      kimicode: { id: "kimicode", displayName: "Kimi Code", abbreviation: "KM", accentHex: "#7c5cd6" },
+    };
+    const { container } = render(
+      <QuotaDetails snapshots={all.slice(0, count)} descriptors={descriptors} onDrag={() => undefined} onToggleExpanded={() => undefined} />,
+    );
+
+    const glow = container.querySelector<HTMLElement>(".details-glow")!.style.backgroundImage;
+    expect(glow.match(/radial-gradient/g)).toHaveLength(count);
+    for (const accent of all.slice(0, count).map((item) => descriptors[item.provider as keyof typeof descriptors].accentHex)) {
+      expect(glow).toContain(accent);
+    }
+  });
+
+  it("leaves the backdrop neutral before any descriptor has arrived", () => {
+    const { container } = render(<QuotaDetails snapshots={[codex, claude]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelector<HTMLElement>(".details-glow")?.style.backgroundImage).toBe("");
   });
 
   it("collapses the detail view with Escape", () => {

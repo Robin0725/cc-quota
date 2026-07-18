@@ -1,16 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { QuotaDetails, QuotaOrb } from "./components/QuotaCard";
-import { fetchSnapshots, getFrontmostProvider, getPreferences, listenDesktopEvents, setWidgetExpanded, startDragging, type WidgetPlacement } from "./lib/bridge";
+import { QuotaDetails, QuotaOrb, type ProviderDescriptorMap } from "./components/QuotaCard";
+import { fetchProviderDescriptors, fetchSnapshots, getFrontmostProvider, getPreferences, listenDesktopEvents, setWidgetExpanded, startDragging, type WidgetPlacement } from "./lib/bridge";
 import { displayableSnapshots, needsFastRefresh } from "./lib/format";
 import { copy, normalizeLanguage } from "./lib/i18n";
 import { mergeSnapshots } from "./lib/snapshots";
-import type { ProviderId, ProviderSnapshot, WidgetPreferences } from "./types";
+import type { ProviderDescriptorDto, ProviderId, ProviderSnapshot, WidgetPreferences } from "./types";
 
 const DEFAULT_PREFS: WidgetPreferences = { locked: false, alwaysOnTop: true, widgetVisible: false, pinnedProvider: null, autoRotateSeconds: 12, language: "zh-CN" };
-const PROVIDER_ORDER = ["codex", "claude"];
+
+/**
+ * Registry order is display order. Providers the registry has not described yet (a snapshot that
+ * arrives before the descriptors do) sort to the end rather than jumping to the front.
+ */
+function orderByDescriptors(items: ProviderSnapshot[], descriptors: ProviderDescriptorDto[]): ProviderSnapshot[] {
+  const rank = (provider: ProviderId) => {
+    const index = descriptors.findIndex((item) => item.id === provider);
+    return index === -1 ? descriptors.length : index;
+  };
+  return [...items].sort((a, b) => rank(a.provider) - rank(b.provider));
+}
 
 export default function App() {
   const [snapshots, setSnapshots] = useState<ProviderSnapshot[]>([]);
+  const [descriptors, setDescriptors] = useState<ProviderDescriptorDto[]>([]);
   const [preferences, setPreferences] = useState(DEFAULT_PREFS);
   const [frontmostProvider, setFrontmostProvider] = useState<ProviderId | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -47,6 +59,8 @@ export default function App() {
     void getPreferences()
       .then((value) => setPreferences({ ...DEFAULT_PREFS, ...value, language: normalizeLanguage(value.language) }))
       .catch(() => undefined);
+    // Descriptors are static for the process lifetime, so one fetch is enough.
+    void fetchProviderDescriptors().then(setDescriptors).catch(() => undefined);
   }, [refresh]);
 
   useEffect(() => {
@@ -95,13 +109,15 @@ export default function App() {
     };
   }, [refresh]);
 
-  const available = useMemo(() => displayableSnapshots(snapshots).sort((a, b) => PROVIDER_ORDER.indexOf(a.provider) - PROVIDER_ORDER.indexOf(b.provider)), [snapshots]);
+  const available = useMemo(() => orderByDescriptors(displayableSnapshots(snapshots), descriptors), [snapshots, descriptors]);
 
   const current = available.find((item) => item.provider === frontmostProvider) ?? available[0] ?? null;
 
-  const orderedSnapshots = useMemo(
-    () => [...snapshots].sort((a, b) => PROVIDER_ORDER.indexOf(a.provider) - PROVIDER_ORDER.indexOf(b.provider)),
-    [snapshots],
+  const orderedSnapshots = useMemo(() => orderByDescriptors(snapshots, descriptors), [snapshots, descriptors]);
+
+  const descriptorMap = useMemo<ProviderDescriptorMap>(
+    () => Object.fromEntries(descriptors.map((item) => [item.id, item])),
+    [descriptors],
   );
 
   const toggleExpanded = useCallback(() => {
@@ -137,6 +153,7 @@ export default function App() {
           <QuotaOrb
             snapshot={current}
             language={language}
+            descriptors={descriptorMap}
             expanded
             onDrag={() => startDragging()}
             onHover={(value) => { if (value) void refresh(); }}
@@ -147,6 +164,7 @@ export default function App() {
           <QuotaDetails
             snapshots={orderedSnapshots}
             language={language}
+            descriptors={descriptorMap}
             onDrag={() => startDragging()}
             onToggleExpanded={toggleExpanded}
           />
@@ -159,6 +177,7 @@ export default function App() {
     <QuotaOrb
       snapshot={current}
       language={language}
+      descriptors={descriptorMap}
       expanded={false}
       onDrag={() => startDragging()}
       onHover={(value) => { if (value) void refresh(); }}

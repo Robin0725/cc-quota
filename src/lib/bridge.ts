@@ -1,4 +1,4 @@
-import type { ProviderId, ProviderSnapshot, WidgetPreferences } from "../types";
+import type { ProviderDescriptorDto, ProviderId, ProviderSnapshot, WidgetPreferences } from "../types";
 
 const defaultPreferences: WidgetPreferences = { locked: false, alwaysOnTop: true, widgetVisible: false, pinnedProvider: null, autoRotateSeconds: 12, language: "zh-CN" };
 const compactWidgetSize = { width: 100, height: 100 };
@@ -91,38 +91,63 @@ export function resolveCompactAnchor(
   return unmoved ? restore.compactAnchor : calculateCompactWidgetAnchor(expandedPosition, placement);
 }
 
-const mockCodexSnapshot: ProviderSnapshot = {
-  provider: "codex",
-  displayName: "CODEX",
-  plan: "PRO",
-  shortWindow: { remainingPercent: 74, resetsAt: new Date(Date.now() + 78 * 60_000).toISOString(), windowSeconds: 18_000 },
-  weeklyWindow: { remainingPercent: 42, resetsAt: new Date(Date.now() + 3.2 * 86_400_000).toISOString(), windowSeconds: 604_800 },
-  resetCredits: 1,
-  resetCreditExpiresAt: [new Date(Date.now() + 9 * 86_400_000).toISOString()],
-  updatedAt: new Date().toISOString(),
-  status: "ok",
-  message: null,
+/**
+ * Browser-only stand-ins for the Rust registry, so the design playground and tests exercise the
+ * same table-driven path as the desktop build. Adding a provider here is one row, never a branch.
+ */
+const mockDescriptors: ProviderDescriptorDto[] = [
+  { id: "codex", displayName: "Codex", abbreviation: "CX", accentHex: "#2f6fed" },
+  { id: "claude", displayName: "Claude", abbreviation: "CL", accentHex: "#b85a3a" },
+];
+
+type MockSnapshotSeed = Pick<ProviderSnapshot, "provider" | "displayName" | "plan" | "resetCredits"> & {
+  shortPercent: number;
+  shortResetMinutes: number;
+  weeklyPercent: number;
+  weeklyResetDays: number;
+  resetCreditExpiresInDays?: number[];
 };
 
-const mockClaudeSnapshot: ProviderSnapshot = {
-  provider: "claude",
-  displayName: "CLAUDE",
-  plan: "MAX",
-  shortWindow: { remainingPercent: 94, resetsAt: new Date(Date.now() + 112 * 60_000).toISOString(), windowSeconds: 18_000 },
-  weeklyWindow: { remainingPercent: 86, resetsAt: new Date(Date.now() + 4.5 * 86_400_000).toISOString(), windowSeconds: 604_800 },
-  resetCredits: null,
-  resetCreditExpiresAt: [],
-  updatedAt: new Date().toISOString(),
-  status: "ok",
-  message: null,
-};
+const mockSnapshotSeeds: MockSnapshotSeed[] = [
+  { provider: "codex", displayName: "CODEX", plan: "PRO", shortPercent: 74, shortResetMinutes: 78, weeklyPercent: 42, weeklyResetDays: 3.2, resetCredits: 1, resetCreditExpiresInDays: [9] },
+  { provider: "claude", displayName: "CLAUDE", plan: "MAX", shortPercent: 94, shortResetMinutes: 112, weeklyPercent: 86, weeklyResetDays: 4.5, resetCredits: null },
+];
+
+function mockSnapshot(seed: MockSnapshotSeed): ProviderSnapshot {
+  const now = Date.now();
+  return {
+    provider: seed.provider,
+    displayName: seed.displayName,
+    plan: seed.plan,
+    shortWindow: { remainingPercent: seed.shortPercent, resetsAt: new Date(now + seed.shortResetMinutes * 60_000).toISOString(), windowSeconds: 18_000 },
+    weeklyWindow: { remainingPercent: seed.weeklyPercent, resetsAt: new Date(now + seed.weeklyResetDays * 86_400_000).toISOString(), windowSeconds: 604_800 },
+    resetCredits: seed.resetCredits,
+    resetCreditExpiresAt: (seed.resetCreditExpiresInDays ?? []).map((days) => new Date(now + days * 86_400_000).toISOString()),
+    updatedAt: new Date(now).toISOString(),
+    status: "ok",
+    message: null,
+  };
+}
+
+export const mockProviderDescriptors = (): ProviderDescriptorDto[] => mockDescriptors.map((item) => ({ ...item }));
+export const mockProviderSnapshots = (): ProviderSnapshot[] => mockSnapshotSeeds.map(mockSnapshot);
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 export async function fetchSnapshots(force = false): Promise<ProviderSnapshot[]> {
-  if (!isTauri()) return [mockCodexSnapshot, mockClaudeSnapshot];
+  if (!isTauri()) return mockProviderSnapshots();
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ProviderSnapshot[]>(force ? "refresh_snapshots" : "get_snapshots");
+}
+
+/**
+ * Registration order is display order — the array comes straight off the Rust registry, so the
+ * front end never keeps a provider ordering of its own.
+ */
+export async function fetchProviderDescriptors(): Promise<ProviderDescriptorDto[]> {
+  if (!isTauri()) return mockProviderDescriptors();
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<ProviderDescriptorDto[]>("get_provider_descriptors");
 }
 
 export async function getPreferences(): Promise<WidgetPreferences> {

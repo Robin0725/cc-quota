@@ -14,7 +14,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+async-trait = "0.1"
 base64 = "0.22"
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 fontdue = "0.9"

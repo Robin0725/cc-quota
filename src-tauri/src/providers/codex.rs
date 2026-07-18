@@ -5,6 +5,39 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use serde_json::Value;
 
 use crate::models::{ProviderSnapshot, UsageWindow};
+use crate::providers::{CapsulePalette, ProviderAdapter, ProviderDescriptor};
+
+pub static DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
+    id: "codex",
+    display_name: "Codex",
+    abbreviation: "CX",
+    palette: CapsulePalette {
+        border: [25, 55, 82, 255],
+        track: [25, 55, 82, 255],
+        fill_top: [47, 111, 237, 255],
+        fill_bottom: [47, 111, 237, 255],
+    },
+    accent_hex: "#2f6fed",
+    focus_hints: &["codex"],
+};
+
+pub struct CodexAdapter;
+
+#[async_trait::async_trait]
+impl ProviderAdapter for CodexAdapter {
+    fn descriptor(&self) -> &'static ProviderDescriptor {
+        &DESCRIPTOR
+    }
+
+    /// `load_auth` only touches `auth.json`, so this stays a local existence check.
+    fn is_configured(&self) -> bool {
+        load_auth().is_ok()
+    }
+
+    async fn fetch_snapshot(&self, client: &reqwest::Client) -> ProviderSnapshot {
+        fetch_snapshot(client).await
+    }
+}
 
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
 const CREDITS_URL: &str = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
