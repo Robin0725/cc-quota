@@ -110,7 +110,10 @@ fn classify_frontmost_application(
 ) -> Option<&'static str> {
     let bundle_id = bundle_id.unwrap_or_default().to_ascii_lowercase();
     let name = name.unwrap_or_default().to_ascii_lowercase();
-    if bundle_id == "app.ccquota.desktop" || name == "cc" {
+    // The bundle id is the reliable check; the name is a fallback for when AppKit reports no
+    // identifier. It must track the product name, or focusing the app would count as "some other
+    // app" and flip the orb to Claude — the flicker this guard exists to prevent.
+    if bundle_id == "app.ccquota.desktop" || name == "cc" || name == "cc quota" {
         return None;
     }
     if bundle_id == "com.openai.codex" || bundle_id.contains("codex") || name.contains("codex") {
@@ -1172,7 +1175,7 @@ fn setup_tray(app: &tauri::App, language: &str) -> tauri::Result<()> {
         .icon_as_template(false)
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .tooltip("CC · Codex + Claude quota")
+        .tooltip("CC Quota · Codex & Claude")
         .on_menu_event(|app, event| handle_tray_menu(app, event.id.as_ref()))
         .build(app)?;
     Ok(())
@@ -1640,8 +1643,11 @@ mod tray_icon_tests {
     #[test]
     fn ignores_cc_itself_to_avoid_focus_flicker() {
         assert_eq!(
-            classify_frontmost_application(Some("app.ccquota.desktop"), Some("CC")),
+            classify_frontmost_application(Some("app.ccquota.desktop"), Some("CC Quota")),
             None
         );
+        // Falls back to the product name when AppKit reports no bundle identifier.
+        assert_eq!(classify_frontmost_application(None, Some("CC Quota")), None);
+        assert_eq!(classify_frontmost_application(None, Some("CC")), None);
     }
 }

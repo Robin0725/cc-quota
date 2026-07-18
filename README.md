@@ -1,16 +1,16 @@
-# CC
+# CC Quota
 
 > **macOS only.** There is no Windows or Linux build, and the source does not compile on them:
 > frontmost-app detection binds to AppKit, and Claude sign-in is read from the macOS Keychain.
 > Releases ship a single universal (Intel + Apple Silicon) macOS app.
 
-CC is a local-first macOS menu bar utility for checking Codex and Claude quota from their existing local sign-in state.
+CC Quota — "CC" for **C**odex & **C**laude — is a local-first macOS menu bar utility for checking Codex and Claude quota from their existing local sign-in state. Either service alone is enough; a provider you have not signed into simply shows as signed out.
 
 This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https://github.com/change-42-yhmm/quota-float). The upstream license, copyright notice, and attribution are retained.
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC 0.3.12 highlights
+## CC Quota 0.3.13 highlights
 
 - Shows Codex and Claude together as two compact horizontal quota capsules in the macOS menu bar.
 - Enlarges each menu bar capsule to `40 × 17 pt` and scales the centered percentage with it, while staying inside the menu bar's safe visual height.

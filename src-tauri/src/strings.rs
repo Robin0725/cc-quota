@@ -31,7 +31,7 @@ const ZH_CN: TrayCopy = TrayCopy {
     refresh_now: "立即刷新",
     switch_language: "Switch to English",
     launch_at_login: "登录时启动",
-    quit: "退出 CC",
+    quit: "退出 CC Quota",
     loading: "正在读取…",
     stale_suffix: " · 旧数据",
     reset_unknown: "重置时间未知",
@@ -46,7 +46,7 @@ const EN: TrayCopy = TrayCopy {
     refresh_now: "Refresh now",
     switch_language: "切换为中文",
     launch_at_login: "Launch at login",
-    quit: "Quit CC",
+    quit: "Quit CC Quota",
     loading: "Reading…",
     stale_suffix: " · Stale",
     reset_unknown: "Reset time unknown",
@@ -69,9 +69,9 @@ mod tests {
 
     #[test]
     fn selects_english_only_for_the_english_preference() {
-        assert_eq!(tray_copy("en").quit, "Quit CC");
-        assert_eq!(tray_copy("zh-CN").quit, "退出 CC");
-        assert_eq!(tray_copy("fr").quit, "退出 CC");
+        assert_eq!(tray_copy("en").quit, "Quit CC Quota");
+        assert_eq!(tray_copy("zh-CN").quit, "退出 CC Quota");
+        assert_eq!(tray_copy("fr").quit, "退出 CC Quota");
     }
 
     #[test]

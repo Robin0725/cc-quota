@@ -1,4 +1,4 @@
-# CC 0.3.12
+# CC Quota 0.3.13
 
 CC is a local-first macOS menu bar quota monitor for Codex and Claude.
 

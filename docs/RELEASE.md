@@ -1,6 +1,6 @@
 # Release guide
 
-The current source version is CC 0.3.12. The three manifests and a release tag must match exactly.
+The current source version is CC Quota 0.3.13. The three manifests and a release tag must match exactly.
 
 ## Validation
 
@@ -18,7 +18,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 ```
 
-For a tagged build, `npm run check:version -- v0.3.12` must also pass.
+For a tagged build, `npm run check:version -- v0.3.13` must also pass.
 
 ## Distribution boundary
 
