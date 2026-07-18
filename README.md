@@ -4,15 +4,21 @@
 > frontmost-app detection binds to AppKit, and Claude sign-in is read from the macOS Keychain.
 > Releases ship a single universal (Intel + Apple Silicon) macOS app.
 
-CC Quota — "CC" for **C**odex & **C**laude — is a local-first macOS menu bar utility for checking Codex and Claude quota from their existing local sign-in state. Either service alone is enough; a provider you have not signed into simply shows as signed out.
+CC Quota is a local-first macOS menu bar utility for checking AI coding quota from the sign-in state each tool already keeps on your Mac. Codex, Claude, and Kimi Code are supported today; any one of them alone is enough, and a provider you have not signed into is simply left out rather than shown as an empty capsule.
+
+The name kept its original "**C**odex & **C**laude" reading from the days when those were the only two.
 
 This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https://github.com/change-42-yhmm/quota-float). The upstream license, copyright notice, and attribution are retained.
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC Quota 0.3.13 highlights
+## CC Quota 0.4.0 highlights
 
-- Shows Codex and Claude together as two compact horizontal quota capsules in the macOS menu bar.
+- Adds Kimi Code alongside Codex and Claude, reading the OAuth token its CLI stores locally and querying `api.kimi.com/coding/v1/usages`.
+- Treats providers as a registry rather than a fixed pair: a new one is a descriptor and an adapter, and the menu bar, menu, and detail panel pick it up without further changes.
+- Shows only the providers you are signed into, sized to however many that is, instead of rendering a fixed pair with empty capsules for the rest.
+- Defines each provider's colour once, in Rust, and passes it to the interface, so the tray bitmap and the panel can no longer drift apart.
+- Shows every signed-in provider as a compact horizontal quota capsule in the macOS menu bar.
 - Enlarges each menu bar capsule to `40 × 17 pt` and scales the centered percentage with it, while staying inside the menu bar's safe visual height.
 - Keeps the quota percentage at the exact visual center of each capsule, with five small bottom-edge status dots that never change the number's size or placement.
 - Shows the 5-hour reset countdown through those dots: one lit dot equals one remaining started hour, so the last partial hour still shows one dot.
@@ -20,20 +26,21 @@ Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See
 - Uses the 5-hour quota whenever that window exists; only a missing 5-hour window falls back to weekly quota and receives a `W` marker.
 - Preserves a real 0% 5-hour value instead of incorrectly falling back.
 - Keeps the floating window optional and disabled by default.
-- Uses a `100 × 100` transparent compact window with one dominant percentage; clicking keeps that trigger in place and opens a `320 × 320` Codex + Claude detail panel directly below it.
-- Follows the frontmost macOS app: Codex shows Codex quota; every other app shows Claude quota. Clicking CC itself keeps the previous provider to avoid flicker.
-- Uses tiny `CX / CL` and `5H / W` markers so the single number is never ambiguous.
-- Keeps Codex cool blue and Claude warm orange, with restrained static gradients and no material animation.
+- Uses a `100 × 100` transparent compact window with one dominant percentage; clicking keeps that trigger in place and opens a `320 × 320` detail panel directly below it, holding one card per signed-in provider.
+- Fits three provider cards without scrolling, and scrolls rather than trimming a line when the content grows past the panel.
+- Follows the frontmost macOS app: each provider claims its own app, and anything else falls back to Claude. Clicking CC itself keeps the previous provider to avoid flicker.
+- Uses tiny `CX / CL / KM` and `5H / W` markers so the single number is never ambiguous.
+- Keeps Codex cool blue, Claude warm orange, and Kimi Code violet, with restrained static gradients and no material animation.
 - Expands only on click, never on hover, and separates a short click from window dragging with a movement threshold.
 - Honors `prefers-reduced-motion` by removing the remaining idle transition.
 - Keeps the last good value briefly as stale data and never invents quota when authentication or response formats fail.
 
 ## Menu bar
 
-CC puts each exact percentage inside its provider-colored capsule. Codex is always the cool-blue capsule on the left; Claude is always the warm-orange capsule on the right. There are no provider initials or logos in the status item:
+CC puts each exact percentage inside its provider-colored capsule, in registry order: Codex cool blue, then Claude warm orange, then Kimi Code violet. Capsules appear only for providers you are signed into, so the status item is as wide as it needs to be and no wider. There are no provider initials or logos in it:
 
 ```text
-[ 74% ] [ 94% ]
+[ 74% ] [ 94% ] [ 99% ]
 ```
 
 The capsule keeps the menu bar quiet; the menu and tooltip retain the provider name, window type, reset time, and stale-data detail:

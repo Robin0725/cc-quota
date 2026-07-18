@@ -1,7 +1,11 @@
 import { memo, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { clampPercent, formatResetTime, hoursUntilReset, preferredWindow, quotaTier, RESET_DOT_COUNT } from "../lib/format";
 import { copy, normalizeLanguage } from "../lib/i18n";
-import type { Language, ProviderSnapshot } from "../types";
+import type { CSSProperties } from "react";
+import type { Language, ProviderDescriptorDto, ProviderSnapshot } from "../types";
+
+/** Descriptors keyed by provider id, as handed down from the Rust registry. */
+export type ProviderDescriptorMap = Record<string, ProviderDescriptorDto>;
 
 interface Props {
   snapshot: ProviderSnapshot | null;
@@ -10,6 +14,7 @@ interface Props {
   onToggleExpanded: () => void;
   expanded?: boolean;
   language?: Language;
+  descriptors?: ProviderDescriptorMap;
 }
 
 interface DetailsProps {
@@ -17,10 +22,25 @@ interface DetailsProps {
   onDrag: () => void | Promise<void>;
   onToggleExpanded: () => void;
   language?: Language;
+  descriptors?: ProviderDescriptorMap;
 }
 
-function providerAbbreviation(snapshot: ProviderSnapshot): string {
-  return snapshot.provider === "codex" ? "CX" : "CL";
+/**
+ * The descriptor owns the label; the fallback only covers the window between mount and the
+ * registry's first reply, and must never guess a *specific* provider's mark.
+ */
+function providerAbbreviation(snapshot: ProviderSnapshot, descriptors?: ProviderDescriptorMap): string {
+  return descriptors?.[snapshot.provider]?.abbreviation ?? snapshot.displayName.slice(0, 2).toUpperCase();
+}
+
+/**
+ * Every provider-tinted surface reads `--provider-accent`; nothing inherits a colour it did not
+ * declare. Leaving the variable unset falls back to neutral grey in CSS, never to another
+ * provider's hue.
+ */
+function accentStyle(snapshot: ProviderSnapshot, descriptors?: ProviderDescriptorMap): CSSProperties | undefined {
+  const accent = descriptors?.[snapshot.provider]?.accentHex;
+  return accent ? ({ "--provider-accent": accent } as CSSProperties) : undefined;
 }
 
 function useClickOrDrag(onActivate: () => void, onDrag: () => void | Promise<void>) {
@@ -89,7 +109,7 @@ function useDrag(onDrag: () => void | Promise<void>) {
   return { onPointerDown, onPointerMove, onPointerUp: reset, onPointerCancel: reset };
 }
 
-export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onToggleExpanded, expanded = false, language = "zh-CN" }: Props) {
+export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onToggleExpanded, expanded = false, language = "zh-CN", descriptors }: Props) {
   const [idle, setIdle] = useState(false);
   const idleTimer = useRef<number | null>(null);
   const activeLanguage = normalizeLanguage(language);
@@ -134,7 +154,8 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
 
   return (
     <main
-      className={`quota-orb${snapshot ? ` quota-orb--${snapshot.provider}` : " quota-orb--empty"} quota-orb--tier-${tier}${idle ? " quota-orb--idle" : ""}`}
+      className={`quota-orb${snapshot ? "" : " quota-orb--empty"} quota-orb--tier-${tier}${idle ? " quota-orb--idle" : ""}`}
+      style={snapshot ? accentStyle(snapshot, descriptors) : undefined}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       {...interactions}
@@ -149,7 +170,7 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
     >
       {available ? (
         <section className="orb-metric" role="progressbar" aria-label={ariaLabel} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
-          <span className="orb-source">{providerAbbreviation(snapshot)}<i aria-hidden="true" />{selected.kind === "weekly" ? "W" : "5H"}</span>
+          <span className="orb-source">{providerAbbreviation(snapshot, descriptors)}<i aria-hidden="true" />{selected.kind === "weekly" ? "W" : "5H"}</span>
           <span className="orb-value">{percent}<small>%</small></span>
           {resetHours !== null ? (
             <span className="orb-dots" aria-hidden="true">
@@ -166,7 +187,29 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
   );
 });
 
-export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onToggleExpanded, language = "zh-CN" }: DetailsProps) {
+/**
+ * The panel's ambient backdrop: one soft glow per provider actually on screen, walked along the
+ * same diagonal the hand-tuned blue/orange pair used to sit on. Two providers land exactly where
+ * the old hardcoded stops were; one centres the single glow; four spread evenly without crowding.
+ *
+ * Colours come from the descriptors rather than a fixed pair, so a third provider tints the
+ * backdrop instead of leaving it advertising the two that shipped first.
+ */
+function backdropGlow(snapshots: ProviderSnapshot[], descriptors?: ProviderDescriptorMap): CSSProperties | undefined {
+  const accents = snapshots.map((item) => descriptors?.[item.provider]?.accentHex).filter((hex): hex is string => Boolean(hex));
+  if (accents.length === 0) return undefined;
+  const layers = accents.map((accent, index) => {
+    const t = accents.length === 1 ? 0.5 : index / (accents.length - 1);
+    const x = 22 + 60 * t;
+    const y = 25 + 53 * t;
+    const alpha = 25 - 3 * t;
+    const spread = 34 + 2 * t;
+    return `radial-gradient(circle at ${x}% ${y}%, color-mix(in srgb, ${accent} ${alpha}%, transparent), transparent ${spread}%)`;
+  });
+  return { backgroundImage: layers.join(", ") };
+}
+
+export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onToggleExpanded, language = "zh-CN", descriptors }: DetailsProps) {
   const activeLanguage = normalizeLanguage(language);
   const dragInteractions = useDrag(onDrag);
   const labels = activeLanguage === "en"
@@ -190,17 +233,20 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
       {...dragInteractions}
       aria-label={labels.title}
     >
+      <div className="details-glow" style={backdropGlow(snapshots, descriptors)} aria-hidden="true" />
       <header className="details-header">
         <div><span>CC</span><strong>{labels.title}</strong></div>
       </header>
-      <div className={`details-providers${snapshots.length === 1 ? " details-providers--single" : ""}`}>
-        {snapshots.length > 0 ? snapshots.slice(0, 2).map((snapshot) => {
+      {/* Scrolling is decided by CSS overflow, not by counting providers here: how tall a card is
+          depends on its content, so a count could never be the right trigger. */}
+      <div className="details-providers">
+        {snapshots.length > 0 ? snapshots.map((snapshot) => {
           const selected = preferredWindow(snapshot);
           const percent = selected ? clampPercent(selected.value.remainingPercent) : null;
           const weeklyPercent = snapshot.weeklyWindow ? clampPercent(snapshot.weeklyWindow.remainingPercent) : null;
           const isStale = snapshot.status === "stale";
           return (
-            <section className={`detail-provider detail-provider--${snapshot.provider}`} key={snapshot.provider}>
+            <section className="detail-provider" style={accentStyle(snapshot, descriptors)} key={snapshot.provider}>
               <div className="detail-provider-heading">
                 <div><i aria-hidden="true" /><strong>{snapshot.displayName}</strong></div>
                 <span>{snapshot.plan ?? copy[activeLanguage].accountFallback}{isStale ? " · STALE" : ""}</span>
@@ -214,22 +260,26 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
                   <div className={`detail-progress detail-progress--tier-${quotaTier(percent)}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
                     <i style={{ width: `${percent}%` }} />
                   </div>
-                  <div className="detail-meta">
-                    <span>{formatResetTime(selected.value.resetsAt, new Date(), activeLanguage)}</span>
-                    <span>{weeklyPercent === null ? labels.noWeekly : `${labels.weekly} ${weeklyPercent}%`}</span>
-                  </div>
-                  {(snapshot.scopedWindows ?? []).length > 0 ? (
-                    <div className="detail-scoped">
-                      {(snapshot.scopedWindows ?? []).map((scoped) => (
-                        <span key={scoped.label}>
-                          {scoped.label}{" "}
-                          <span className={`detail-scoped-value detail-scoped-value--${quotaTier(clampPercent(scoped.remainingPercent))}`}>
-                            {clampPercent(scoped.remainingPercent)}%
-                          </span>
-                        </span>
-                      ))}
+                  {/* Meta and scoped buckets share a wrapper so the tight three-card layout can fold
+                      them onto one line. They stay stacked at one and two providers. */}
+                  <div className="detail-footer">
+                    <div className="detail-meta">
+                      <span>{formatResetTime(selected.value.resetsAt, new Date(), activeLanguage)}</span>
+                      <span>{weeklyPercent === null ? labels.noWeekly : `${labels.weekly} ${weeklyPercent}%`}</span>
                     </div>
-                  ) : null}
+                    {(snapshot.scopedWindows ?? []).length > 0 ? (
+                      <div className="detail-scoped">
+                        {(snapshot.scopedWindows ?? []).map((scoped) => (
+                          <span key={scoped.label}>
+                            {scoped.label}{" "}
+                            <span className={`detail-scoped-value detail-scoped-value--${quotaTier(clampPercent(scoped.remainingPercent))}`}>
+                              {clampPercent(scoped.remainingPercent)}%
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </>
               ) : (
                 <p className="detail-unavailable">{snapshot.message ?? copy[activeLanguage].unavailableStatus}</p>
