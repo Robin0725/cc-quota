@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { calculateCompactWidgetAnchor, calculateExpandedWidgetLayout } from "./bridge";
 
 describe("floating widget placement", () => {
+  it("opens down and to the right when the orb has room on both sides", () => {
+    // Mid-screen, so neither direction is forced: this is the case that pins the default.
+    const layout = calculateExpandedWidgetLayout(
+      { x: 400, y: 60, width: 100, height: 100 },
+      { x: 0, y: 24, width: 1200, height: 876 },
+    );
+
+    expect(layout.position).toEqual({ x: 400, y: 60 });
+    expect(layout.placement).toEqual({ vertical: "below", horizontal: "right" });
+  });
+
   it("keeps the trigger anchored and opens the detail panel below it", () => {
     const layout = calculateExpandedWidgetLayout(
       { x: 900, y: 60, width: 100, height: 100 },

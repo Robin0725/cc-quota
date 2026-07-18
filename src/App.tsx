@@ -14,7 +14,7 @@ export default function App() {
   const [preferences, setPreferences] = useState(DEFAULT_PREFS);
   const [frontmostProvider, setFrontmostProvider] = useState<ProviderId | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [expandedPlacement, setExpandedPlacement] = useState<WidgetPlacement>({ vertical: "below", horizontal: "left" });
+  const [expandedPlacement, setExpandedPlacement] = useState<WidgetPlacement>({ vertical: "below", horizontal: "right" });
   const expansionBusy = useRef(false);
   const failures = useRef(0);
   const language = normalizeLanguage(preferences.language);

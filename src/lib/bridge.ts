@@ -14,7 +14,7 @@ export type WidgetPlacement = {
 type LogicalPoint = { x: number; y: number };
 type LogicalRect = LogicalPoint & { width: number; height: number };
 
-let expandedWidgetPlacement: WidgetPlacement = { vertical: "below", horizontal: "left" };
+let expandedWidgetPlacement: WidgetPlacement = { vertical: "below", horizontal: "right" };
 
 export function calculateExpandedWidgetLayout(compact: LogicalRect, workArea?: LogicalRect): {
   position: LogicalPoint;
@@ -25,22 +25,24 @@ export function calculateExpandedWidgetLayout(compact: LogicalRect, workArea?: L
     width: expandedPanelSize.width,
     height: compactWidgetSize.height + expandedPanelGap + expandedPanelSize.height,
   };
+  // The panel opens down and to the right of the orb by default, mirroring left only when the
+  // orb sits too close to the right edge for the panel to fit.
   const opensLeftX = compact.x + compact.width - size.width;
   const opensRightX = compact.x;
-  let x = opensLeftX;
+  let x = opensRightX;
   let y = compact.y;
-  const placement: WidgetPlacement = { vertical: "below", horizontal: "left" };
+  const placement: WidgetPlacement = { vertical: "below", horizontal: "right" };
 
   if (workArea) {
     const minX = workArea.x + monitorInset;
     const maxX = Math.max(minX, workArea.x + workArea.width - size.width - monitorInset);
     const opensLeftFits = opensLeftX >= minX && opensLeftX <= maxX;
     const opensRightFits = opensRightX >= minX && opensRightX <= maxX;
-    if (!opensLeftFits && opensRightFits) {
-      x = opensRightX;
-      placement.horizontal = "right";
+    if (!opensRightFits && opensLeftFits) {
+      x = opensLeftX;
+      placement.horizontal = "left";
     } else {
-      x = Math.min(maxX, Math.max(minX, opensLeftX));
+      x = Math.min(maxX, Math.max(minX, opensRightX));
     }
 
     const minY = workArea.y + monitorInset;
@@ -180,7 +182,7 @@ export async function setWidgetExpanded(expanded: boolean): Promise<WidgetPlacem
   }
   await appWindow.setSize(new LogicalSize(compactWidgetSize.width, compactWidgetSize.height));
   await appWindow.setPosition(new LogicalPosition(Math.round(anchor.x), Math.round(anchor.y)));
-  expandedWidgetPlacement = { vertical: "below", horizontal: "left" };
+  expandedWidgetPlacement = { vertical: "below", horizontal: "right" };
   return expandedWidgetPlacement;
 }
 
