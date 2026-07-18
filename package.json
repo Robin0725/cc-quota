@@ -1,7 +1,7 @@
 {
   "name": "cc-quota",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "check:version": "node scripts/check-version.mjs",

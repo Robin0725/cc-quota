@@ -105,8 +105,29 @@ fn rounded_percent(window: &UsageWindow) -> u8 {
     window.remaining_percent.clamp(0.0, 100.0).round() as u8
 }
 
+/// The provider the widget should show.
+///
+/// The primary signal is which CLI last wrote to its own session directory (§6 of the registry
+/// contract). It replaces foreground-app attribution because that signal cannot work: all three
+/// CLIs are commonly run from a single terminal window, where the frontmost app is the terminal
+/// every time. Foreground attribution remains as the fallback for a machine that has not written
+/// any session yet, so the behaviour there is unchanged rather than wrong.
 #[tauri::command]
-fn get_frontmost_provider() -> Option<String> {
+fn get_active_provider() -> Option<String> {
+    resolve_active_provider(providers::activity::active_provider(), frontmost_provider)
+}
+
+fn resolve_active_provider(
+    activity: Option<&'static str>,
+    focus: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    match activity {
+        Some(provider) => Some(provider.to_owned()),
+        None => focus(),
+    }
+}
+
+fn frontmost_provider() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::NSWorkspace;
@@ -1411,6 +1432,8 @@ pub fn run() {
                 let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
                 let _ = window.set_always_on_top(preferences.always_on_top);
             }
+            // Subscribe before the widget's first poll, so early CLI activity is not missed.
+            providers::activity::start();
             let _ = apply_lock(app.handle(), preferences.locked);
             let _ = apply_widget_visibility(app.handle(), preferences.widget_visible);
             refresh_tray_from_cache(app.handle());
@@ -1433,7 +1456,7 @@ pub fn run() {
             set_widget_locked,
             set_widget_always_on_top,
             set_widget_visible,
-            get_frontmost_provider,
+            get_active_provider,
             get_provider_descriptors
         ])
         .on_window_event(|window, event| {
@@ -1455,6 +1478,36 @@ pub fn run() {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod active_provider_tests {
+    use super::resolve_active_provider;
+    use std::cell::Cell;
+
+    /// Observed activity answers the question outright; the frontmost app is not even consulted,
+    /// which is the point — inside one terminal it would give the wrong provider.
+    #[test]
+    fn activity_wins_and_the_foreground_app_is_never_asked() {
+        let asked = Cell::new(false);
+        let resolved = resolve_active_provider(Some("alpha"), || {
+            asked.set(true);
+            Some("beta".to_owned())
+        });
+        assert_eq!(resolved.as_deref(), Some("alpha"));
+        assert!(!asked.get());
+    }
+
+    /// With no session ever written there is nothing to rank, so the previous foreground-app
+    /// behaviour stands rather than the widget guessing.
+    #[test]
+    fn falls_back_to_the_foreground_app_when_nothing_was_observed() {
+        assert_eq!(
+            resolve_active_provider(None, || Some("beta".to_owned())).as_deref(),
+            Some("beta")
+        );
+        assert_eq!(resolve_active_provider(None, || None), None);
+    }
 }
 
 #[cfg(test)]

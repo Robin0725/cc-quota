@@ -12,7 +12,7 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC Quota 0.4.0 highlights
+## CC Quota 0.5.0 highlights
 
 - Adds Kimi Code alongside Codex and Claude, reading the OAuth token its CLI stores locally and querying `api.kimi.com/coding/v1/usages`.
 - Treats providers as a registry rather than a fixed pair: a new one is a descriptor and an adapter, and the menu bar, menu, and detail panel pick it up without further changes.
@@ -28,7 +28,7 @@ Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See
 - Keeps the floating window optional and disabled by default.
 - Uses a `100 × 100` transparent compact window with one dominant percentage; clicking keeps that trigger in place and opens a `320 × 320` detail panel directly below it, holding one card per signed-in provider.
 - Fits three provider cards without scrolling, and scrolls rather than trimming a line when the content grows past the panel.
-- Follows the frontmost macOS app: each provider claims its own app, and anything else falls back to Claude. Clicking CC itself keeps the previous provider to avoid flicker.
+- Follows whichever assistant you are actually working with, by watching for changes in the session directory each CLI writes to. Several agents running in one terminal are told apart correctly, which the frontmost application can never do. Watching is event-driven, so an idle Mac is not polled; the frontmost app remains the fallback when nothing has been active yet.
 - Uses tiny `CX / CL / KM` and `5H / W` markers so the single number is never ambiguous.
 - Keeps Codex cool blue, Claude warm orange, and Kimi Code violet, with restrained static gradients and no material animation.
 - Expands only on click, never on hover, and separates a short click from window dragging with a movement threshold.
@@ -55,11 +55,13 @@ Open the menu to inspect reset times, refresh immediately, show or hide the floa
 
 ## How it works
 
-CC reads the existing Codex Desktop and Claude Code login state on the same Mac, then calls each provider's quota service. It does not estimate quota from token counts, redeem reset credits, or modify account settings.
+CC reads the existing Codex Desktop, Claude Code, and Kimi Code login state on the same Mac, then calls each provider's quota service. It does not estimate quota from token counts, redeem reset credits, or modify account settings.
 
-Codex authentication is read from `CODEX_HOME/auth.json` or `~/.codex/auth.json`. Claude Code authentication uses `CLAUDE_CODE_OAUTH_TOKEN` only when the user explicitly set it; otherwise the app reads the macOS Keychain item used by Claude Code, with a local Claude credentials-file fallback. Credentials are used in memory and are not copied into CC preferences.
+Codex authentication is read from `CODEX_HOME/auth.json` or `~/.codex/auth.json`. Claude Code authentication uses `CLAUDE_CODE_OAUTH_TOKEN` only when the user explicitly set it; otherwise the app reads the macOS Keychain item used by Claude Code, with a local Claude credentials-file fallback. Kimi Code authentication is read from `KIMI_CODE_HOME/credentials` or `~/.kimi-code/credentials`, and a token close to expiry is refreshed in memory rather than written back, so CC never races the CLI for that file. Credentials are used in memory and are not copied into CC preferences.
 
-Browser preview uses mock data. Real quota reading requires the Tauri desktop app and an existing Codex Desktop and/or Claude Code sign-in.
+To tell which assistant you are working with, CC subscribes to file system events for each CLI's session directory and records **only the moment a change was reported**. It never opens, reads, or indexes those files, and their paths are never logged. This is what lets several agents in one terminal be told apart, since the frontmost application is the terminal in every case.
+
+Browser preview uses mock data. Real quota reading requires the Tauri desktop app and an existing sign-in for at least one supported provider.
 
 The provider quota endpoints may change. When an authentication method or response shape is no longer recognized, CC shows stale or unavailable state rather than fabricating a number.
 
@@ -68,6 +70,7 @@ The provider quota endpoints may change. When an authentication method or respon
 - Reads local sign-in state only to request quota.
 - Sends each access token only to that provider's quota endpoint.
 - Stores only widget preferences in the CC app config directory.
+- Watches CLI session directories for change events and keeps only the time of the most recent change per provider. It never opens or reads a session file, and never records their names or paths.
 - Does not store tokens, account IDs, prompts, chat history, raw quota responses, or local auth paths.
 - Includes no telemetry, analytics, crash reporting, or third-party tracking.
 - Does not redeem reset credits or modify account settings.

@@ -1,6 +1,6 @@
 [package]
 name = "cc-quota"
-version = "0.4.0"
+version = "0.5.0"
 description = "A macOS menu bar monitor for Codex and Claude quota"
 authors = ["Robin0725 (Robin)", "Quota Float contributors"]
 license = "MIT"
@@ -29,3 +29,4 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 tokio = { version = "1", features = ["macros", "process", "sync", "time"] }
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }

@@ -245,10 +245,15 @@ export async function setWidgetExpanded(expanded: boolean): Promise<WidgetPlacem
   return expandedWidgetPlacement;
 }
 
-export async function getFrontmostProvider(): Promise<ProviderId | null> {
+/**
+ * The provider the user is working with, decided in Rust by which CLI last wrote a session file.
+ * The call is a memory read on the backend — the watching is event-driven — so polling it costs
+ * nothing on the filesystem.
+ */
+export async function getActiveProvider(): Promise<ProviderId | null> {
   if (!isTauri()) return null;
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<ProviderId | null>("get_frontmost_provider");
+  return invoke<ProviderId | null>("get_active_provider");
 }
 
 export async function listenDesktopEvents(handlers: {

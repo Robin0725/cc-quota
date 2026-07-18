@@ -39,6 +39,10 @@ impl ProviderAdapter for KimiCodeAdapter {
         credentials_path().is_some_and(|path| load_credentials(&path).is_ok())
     }
 
+    fn activity_paths(&self) -> Vec<PathBuf> {
+        sessions_path().into_iter().collect()
+    }
+
     async fn fetch_snapshot(&self, client: &reqwest::Client) -> ProviderSnapshot {
         fetch_snapshot(client).await
     }
@@ -61,11 +65,19 @@ struct Credentials {
     expires_at: Option<i64>,
 }
 
-fn credentials_path() -> Option<PathBuf> {
+fn kimi_home() -> Option<PathBuf> {
     std::env::var_os("KIMI_CODE_HOME")
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(".kimi-code")))
-        .map(|home| home.join("credentials").join("kimi-code.json"))
+}
+
+fn credentials_path() -> Option<PathBuf> {
+    kimi_home().map(|home| home.join("credentials").join("kimi-code.json"))
+}
+
+/// Where the CLI records its transcripts. Watched for write activity only; never read.
+fn sessions_path() -> Option<PathBuf> {
+    kimi_home().map(|home| home.join("sessions"))
 }
 
 fn text<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {

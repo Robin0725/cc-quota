@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QuotaDetails, QuotaOrb, type ProviderDescriptorMap } from "./components/QuotaCard";
-import { fetchProviderDescriptors, fetchSnapshots, getFrontmostProvider, getPreferences, listenDesktopEvents, setWidgetExpanded, startDragging, type WidgetPlacement } from "./lib/bridge";
+import { fetchProviderDescriptors, fetchSnapshots, getActiveProvider, getPreferences, listenDesktopEvents, setWidgetExpanded, startDragging, type WidgetPlacement } from "./lib/bridge";
 import { displayableSnapshots, needsFastRefresh } from "./lib/format";
 import { copy, normalizeLanguage } from "./lib/i18n";
 import { mergeSnapshots } from "./lib/snapshots";
@@ -24,7 +24,7 @@ export default function App() {
   const [snapshots, setSnapshots] = useState<ProviderSnapshot[]>([]);
   const [descriptors, setDescriptors] = useState<ProviderDescriptorDto[]>([]);
   const [preferences, setPreferences] = useState(DEFAULT_PREFS);
-  const [frontmostProvider, setFrontmostProvider] = useState<ProviderId | null>(null);
+  const [activeProvider, setActiveProvider] = useState<ProviderId | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [expandedPlacement, setExpandedPlacement] = useState<WidgetPlacement>({ vertical: "below", horizontal: "right" });
   const expansionBusy = useRef(false);
@@ -65,16 +65,18 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const syncFrontmostProvider = async () => {
+    // The backend decides this from filesystem events, so each call only reads a value it already
+    // holds. Polling stays here because it needs no IPC subscription and costs nothing either side.
+    const syncActiveProvider = async () => {
       try {
-        const provider = await getFrontmostProvider();
-        if (!cancelled && provider) setFrontmostProvider(provider);
+        const provider = await getActiveProvider();
+        if (!cancelled && provider) setActiveProvider(provider);
       } catch {
-        // Keep the last meaningful provider when macOS focus detection is unavailable.
+        // Keep the last meaningful provider when the detection is unavailable.
       }
     };
-    void syncFrontmostProvider();
-    const id = window.setInterval(() => void syncFrontmostProvider(), 750);
+    void syncActiveProvider();
+    const id = window.setInterval(() => void syncActiveProvider(), 750);
     return () => { cancelled = true; window.clearInterval(id); };
   }, []);
 
@@ -111,7 +113,7 @@ export default function App() {
 
   const available = useMemo(() => orderByDescriptors(displayableSnapshots(snapshots), descriptors), [snapshots, descriptors]);
 
-  const current = available.find((item) => item.provider === frontmostProvider) ?? available[0] ?? null;
+  const current = available.find((item) => item.provider === activeProvider) ?? available[0] ?? null;
 
   const orderedSnapshots = useMemo(() => orderByDescriptors(snapshots, descriptors), [snapshots, descriptors]);
 

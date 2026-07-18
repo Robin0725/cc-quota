@@ -34,6 +34,10 @@ impl ProviderAdapter for CodexAdapter {
         load_auth().is_ok()
     }
 
+    fn activity_paths(&self) -> Vec<PathBuf> {
+        sessions_path().into_iter().collect()
+    }
+
     async fn fetch_snapshot(&self, client: &reqwest::Client) -> ProviderSnapshot {
         fetch_snapshot(client).await
     }
@@ -49,11 +53,19 @@ struct Auth {
     account_id: Option<String>,
 }
 
-fn auth_path() -> Option<PathBuf> {
+fn codex_home() -> Option<PathBuf> {
     std::env::var_os("CODEX_HOME")
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
-        .map(|home| home.join("auth.json"))
+}
+
+fn auth_path() -> Option<PathBuf> {
+    codex_home().map(|home| home.join("auth.json"))
+}
+
+/// Where the CLI records its transcripts. Watched for write activity only; never read.
+fn sessions_path() -> Option<PathBuf> {
+    codex_home().map(|home| home.join("sessions"))
 }
 
 fn pick_string<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {

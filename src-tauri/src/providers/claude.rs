@@ -33,6 +33,10 @@ impl ProviderAdapter for ClaudeAdapter {
         has_local_login()
     }
 
+    fn activity_paths(&self) -> Vec<PathBuf> {
+        projects_path().into_iter().collect()
+    }
+
     async fn fetch_snapshot(&self, client: &reqwest::Client) -> ProviderSnapshot {
         fetch_snapshot(client).await
     }
@@ -89,11 +93,20 @@ struct Auth {
     plan: Option<String>,
 }
 
-fn credentials_path() -> Option<PathBuf> {
+fn config_directory() -> Option<PathBuf> {
     std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(".claude")))
-        .map(|directory| directory.join(".credentials.json"))
+}
+
+fn credentials_path() -> Option<PathBuf> {
+    config_directory().map(|directory| directory.join(".credentials.json"))
+}
+
+/// Where the CLI records its transcripts, one directory per project. Watched for write activity
+/// only; never read.
+fn projects_path() -> Option<PathBuf> {
+    config_directory().map(|directory| directory.join("projects"))
 }
 
 fn keychain_account() -> String {

@@ -48,6 +48,11 @@ pub trait ProviderAdapter: Send + Sync {
     /// 只做存在性检查,不得发网络请求、不得解密/输出凭证内容。
     fn is_configured(&self) -> bool;
 
+    /// 该 provider 的 CLI 在活动时会写入的目录(会话日志等)。
+    /// 用于判断"用户此刻在用哪个" —— 见 §六。返回空切片表示该 provider
+    /// 不提供活动信号(它就永远不会被选为活动 provider,但仍正常显示配额)。
+    fn activity_paths(&self) -> Vec<PathBuf>;
+
     /// 取配额。**永不 panic、永不返回 Err** —— 失败一律返回
     /// ProviderSnapshot::failure_for(id, display_name, status, message),
     /// status 取 "signed_out" | "unavailable"。
@@ -220,6 +225,39 @@ Accept: application/json
 `["kimi"]` —— 需覆盖 Kimi Code 的终端/GUI。注意别误伤:hints 匹配在 `all()` 上按注册顺序取首个命中。
 
 ---
+
+## 六、活动 provider 判定(悬浮窗显示谁)
+
+### 6.1 为什么不用前台 app
+
+原方案按前台 macOS 应用判断归属。该信号在真实用法下无解:用户在**同一个终端**里跑 Claude、Codex、Kimi,
+前台 app 永远是终端本身,三者无法区分。
+
+改用**活动信号**:每个 CLI 干活时都在自己的会话目录里写文件,谁刚写过谁就是用户正在用的。
+跨终端、跨 tmux 都成立,且不需要辅助功能权限。
+
+### 6.2 必须用 FSEvents,不许轮询遍历
+
+实测(本机,2026-07-19):三个会话目录共约 2800 个文件,全量遍历一次 **25ms**。
+按 2 秒轮询 = 持续占用 **1.25% CPU**,且该开销**正比于历史会话文件总数**——用得越久越慢。
+一个越用越卡的设计,起点再低也是错的。
+
+因此:用 `notify` crate(底层走 macOS FSEvents)监听目录变化。开销只与"发生了多少变化"有关,
+与"存了多少文件"无关;闲置时不唤醒,变化时即时响应。
+
+**兜底不得退化成全目录遍历。** 监听建立失败时,退回"只 stat 当前那一个最新会话文件"
+(单文件 stat 是微秒级)。若连兜底也不可用,则退回 §1.3 的 `classify_focus`(前台 app),
+即恢复旧行为,而不是给出错误答案。
+
+### 6.3 选择规则
+
+**只实现这一条:显示最近有活动的 provider。**
+
+- 各 provider 维护一个 `last_activity: Option<Instant/SystemTime>`,取其最大者为活动 provider。
+- 从未观测到任何活动(如刚装好)→ 回落到 §1.3 `classify_focus`。
+- 活动 provider 未登录 / 不在 `configured()` 中 → 跳过,取次新的。
+
+**不要实现"低配额抢占显示"。** 那是提过但用户尚未拍板的第二条规则,未经同意不得加入。
 
 ## 五、纪律
 

@@ -3,11 +3,13 @@
 //! Adding an AI provider is meant to cost one descriptor, one adapter and one line in
 //! [`REGISTRY`]. Nothing outside this module may branch on a provider id.
 
+pub mod activity;
 pub mod claude;
 pub mod codex;
 pub mod kimicode;
 
 use std::{
+    path::PathBuf,
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -49,6 +51,16 @@ pub trait ProviderAdapter: Send + Sync {
     /// Whether a local login exists (credential file / keychain entry).
     /// Existence check only: no network requests, no decrypting or echoing credentials.
     fn is_configured(&self) -> bool;
+
+    /// Directories this provider's CLI writes to while it works (session logs and the like), used
+    /// to tell which provider the user is currently using — see [`activity`]. Returning an empty
+    /// vector means the provider offers no activity signal: it will never be picked as the active
+    /// one, but its quota still displays normally.
+    ///
+    /// The paths are watched and stat'd, never read: their contents are the user's conversations.
+    /// Directories that do not exist are expected (the user may not have installed that CLI) and
+    /// must not be treated as an error here.
+    fn activity_paths(&self) -> Vec<PathBuf>;
 
     /// Reads the quota. Never panics, never returns `Err`: failures come back as
     /// `ProviderSnapshot::failure_for(..)` with status `signed_out` or `unavailable`.
