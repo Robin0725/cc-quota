@@ -314,9 +314,13 @@ Accept: application/json
 失败一律保留上次成功的数值并标记 `stale`,**不按 status 区别对待**。
 
 - `merge_snapshots`(lib.rs)与 `mergeSnapshots`(src/lib/snapshots.ts):只有 `ok` 直接替换;
-  其余任何 status(含 `signed_out`)都回落到 30 分钟内的上次成功读数,状态改 `stale`,
+  其余任何 status(含 `signed_out`)都回落到保留窗口内的上次成功读数,状态改 `stale`,
   并把失败 message 带上。
 - 从未成功过(没有可回落的读数)→ 原样上报失败,不编数字。
 - **不得按 status 判断"这次失败是不是永久性的"。** 短寿命 token(kimi 15 分钟)过期时
   会报 `signed_out`,而 CLI 马上就会续期 —— 早先按 status 清空数值的写法,正是 0.5.0 里
-  kimi 胶囊每刻钟整个消失的原因。允许显示多久由 30 分钟的 `MAX_STALE_SECONDS` 界定,而不是 status。
+  kimi 胶囊每刻钟整个消失的原因。允许显示多久由 `MAX_STALE_SECONDS` 界定,而不是 status。
+- 保留窗口 = **24 小时**(0.5.3 起,用户拍板):kimi 的 token 只在用户回来用 CLI 时才续期,
+  30 分钟的窗口意味着离开吃顿饭胶囊就消失。旧读数全程置灰并标 `stale`;连续 24 小时
+  没有任何成功读数,才进入空数据状态。两侧常量:lib.rs `MAX_STALE_SECONDS` 与
+  src/lib/format.ts `MAX_STALE_MS`,必须同改。

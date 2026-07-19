@@ -34,8 +34,8 @@ describe("quota formatting", () => {
     expect(preferredWindow({ ...base, shortWindow: null, weeklyWindow })).toEqual({ kind: "weekly", value: weeklyWindow });
   });
 
-  it("keeps fresh stale data displayable but expires it after 30 minutes", () => {
-    const now = new Date("2026-07-17T00:30:00Z");
+  it("keeps stale data displayable for a day but expires it after 24 hours", () => {
+    const now = new Date("2026-07-17T23:59:00Z");
     const snapshot: ProviderSnapshot = {
       provider: "codex",
       displayName: "CODEX",
@@ -49,7 +49,7 @@ describe("quota formatting", () => {
       message: "network",
     };
     expect(isSnapshotDisplayable(snapshot, now)).toBe(true);
-    expect(isSnapshotDisplayable({ ...snapshot, updatedAt: "2026-07-16T23:59:00Z" }, now)).toBe(false);
+    expect(isSnapshotDisplayable({ ...snapshot, updatedAt: "2026-07-16T23:58:00Z" }, now)).toBe(false);
   });
 
   it("selects only providers with a real displayable window", () => {

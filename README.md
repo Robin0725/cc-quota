@@ -12,7 +12,7 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC Quota 0.5.1 highlights
+## CC Quota 0.5.3 highlights
 
 - Adds Kimi Code alongside Codex and Claude, reading the OAuth token its CLI stores locally and querying `api.kimi.com/coding/v1/usages`.
 - Treats providers as a registry rather than a fixed pair: a new one is a descriptor and an adapter, and the menu bar, menu, and detail panel pick it up without further changes.
@@ -34,7 +34,7 @@ Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See
 - Keeps Codex cool blue, Claude warm orange, and Kimi Code violet, with restrained static gradients and no material animation.
 - Expands only on click, never on hover, and separates a short click from window dragging with a movement threshold.
 - Honors `prefers-reduced-motion` by removing the remaining idle transition.
-- Keeps the last good value briefly as stale data and never invents quota when authentication or response formats fail. Every kind of failure is treated the same way, including an expired sign-in, so a card dims rather than disappearing.
+- Keeps the last good value for up to a day as dimmed stale data and never invents quota when authentication or response formats fail. Every kind of failure is treated the same way, including an expired sign-in, so a card dims rather than disappearing — Kimi's sign-in lapses minutes after its CLI goes idle and renews only when you return, so a shorter window would empty its capsule over lunch.
 - Gives each provider a fetch budget, so one provider's gateway holding a request open cannot delay the others' readings.
 
 ## Menu bar

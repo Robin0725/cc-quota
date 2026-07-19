@@ -12,12 +12,17 @@ export function preferredWindow(snapshot: ProviderSnapshot): PreferredWindow | n
   return null;
 }
 
+// Mirrors MAX_STALE_SECONDS in src-tauri/src/lib.rs. A day, because Kimi's token lapses within
+// minutes of the user stepping away and renews only when they return: a shorter window emptied
+// the capsule over lunch, while the stale reading stays dimmed and dated the whole day.
+const MAX_STALE_MS = 24 * 60 * 60_000;
+
 export function isSnapshotDisplayable(snapshot: ProviderSnapshot, now = new Date()): boolean {
   if (!preferredWindow(snapshot)) return false;
   if (snapshot.status === "ok") return true;
   if (snapshot.status !== "stale") return false;
   const updatedAt = new Date(snapshot.updatedAt).getTime();
-  return Number.isFinite(updatedAt) && now.getTime() - updatedAt <= 30 * 60_000;
+  return Number.isFinite(updatedAt) && now.getTime() - updatedAt <= MAX_STALE_MS;
 }
 
 export function displayableSnapshots(snapshots: ProviderSnapshot[], now = new Date()): ProviderSnapshot[] {

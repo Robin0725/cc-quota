@@ -1049,7 +1049,12 @@ fn unavailable_snapshots(message: &str) -> Vec<ProviderSnapshot> {
 /// Mirrors `isSnapshotDisplayable` in `src/lib/format.ts`: past this age the last good reading is
 /// no longer worth showing. Without it the tray keeps rendering a confident percentage from an
 /// arbitrarily old fetch while the widget has already blanked out.
-const MAX_STALE_SECONDS: i64 = 30 * 60;
+///
+/// A day, not minutes: Kimi's access token lives about fifteen minutes and its CLI renews it only
+/// when the user returns, so any shorter window made the capsule vanish over lunch. The reading is
+/// dimmed and dated the whole time; a day-old number marked stale beats an empty capsule, and only
+/// a full day of silence earns the empty state.
+const MAX_STALE_SECONDS: i64 = 24 * 60 * 60;
 
 fn is_within_stale_window(snapshot: &ProviderSnapshot, now: &DateTime<Utc>) -> bool {
     DateTime::parse_from_rfc3339(&snapshot.updated_at)
@@ -1794,9 +1799,9 @@ mod tray_icon_tests {
         let previous = successful_snapshot("codex", 74.0);
         let failure =
             ProviderSnapshot::failure_for("codex", "CODEX", "unavailable", "Network unavailable");
-        // 31 minutes after the last good reading, past the 30 minute cutoff the widget uses.
+        // 25 hours after the last good reading, past the 24 hour cutoff the widget uses.
         let now = Utc
-            .with_ymd_and_hms(2026, 7, 17, 18, 31, 0)
+            .with_ymd_and_hms(2026, 7, 18, 19, 0, 0)
             .single()
             .unwrap();
         let merged = merge_snapshots(std::slice::from_ref(&previous), vec![failure], &now);
