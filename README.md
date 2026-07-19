@@ -1,5 +1,9 @@
 # CC Quota
 
+<img src="docs/images/menubar-capsules.png" alt="Codex, Claude and Kimi Code quota capsules in the macOS menu bar" width="290">
+
+*Codex, Claude and Kimi Code quota, live in the menu bar. The dots under each capsule count the hours left in the 5-hour window.*
+
 > **macOS only.** There is no Windows or Linux build, and the source does not compile on them:
 > frontmost-app detection binds to AppKit, and Claude sign-in is read from the macOS Keychain.
 > Releases ship a single universal (Intel + Apple Silicon) macOS app.
