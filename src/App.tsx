@@ -89,7 +89,12 @@ export default function App() {
     let cleanup: () => void = () => {};
     void listenDesktopEvents({
       onPreferences: (value) => setPreferences({ ...DEFAULT_PREFS, ...value, language: normalizeLanguage(value.language) }),
-      onSnapshots: (value) => setSnapshots((current) => mergeSnapshots(current, value)),
+      onSnapshots: (value) => {
+        // The background loop's pushes count as recoveries too, or a healthy reading arriving by
+        // event would leave the poll parked at the backoff ceiling it no longer deserves.
+        if (value.some((item) => item.status === "ok")) failures.current = 0;
+        setSnapshots((current) => mergeSnapshots(current, value));
+      },
     }).then((value) => { if (cancelled) value(); else cleanup = value; }).catch(() => undefined);
     return () => { cancelled = true; cleanup(); };
   }, []);

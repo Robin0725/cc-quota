@@ -14,6 +14,9 @@ pub struct TrayCopy {
     pub refresh_now: &'static str,
     /// Names the language being switched *to*, so the item reads as an action.
     pub switch_language: &'static str,
+    /// Offers the Accessibility permission that lets the widget follow the clicked window.
+    /// Shown checked and disabled once granted, since only System Settings can revoke it.
+    pub follow_window: &'static str,
     pub launch_at_login: &'static str,
     pub quit: &'static str,
     pub loading: &'static str,
@@ -30,6 +33,7 @@ const ZH_CN: TrayCopy = TrayCopy {
     disable_click_through: "取消鼠标穿透",
     refresh_now: "立即刷新",
     switch_language: "Switch to English",
+    follow_window: "跟随点击的窗口(需辅助功能权限)",
     launch_at_login: "登录时启动",
     quit: "退出 CC Quota",
     loading: "正在读取…",
@@ -45,6 +49,7 @@ const EN: TrayCopy = TrayCopy {
     disable_click_through: "Disable click-through",
     refresh_now: "Refresh now",
     switch_language: "切换为中文",
+    follow_window: "Follow the clicked window (needs Accessibility)",
     launch_at_login: "Launch at login",
     quit: "Quit CC Quota",
     loading: "Reading…",

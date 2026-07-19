@@ -167,6 +167,27 @@ pub fn classify_focus(
     Some(default_provider)
 }
 
+/// Provider named by any of the given strings — a bundle id, an application name, or a window
+/// title. Hint matches only: unlike [`classify_focus`] there is no default, so "nothing matched"
+/// stays distinguishable from "the default provider matched". Inputs are lowercased here; callers
+/// pass them as they were reported.
+pub fn hinted_provider(candidates: &[&str]) -> Option<&'static str> {
+    let lowered: Vec<String> = candidates
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect();
+    all()
+        .iter()
+        .find(|adapter| {
+            adapter
+                .descriptor()
+                .focus_hints
+                .iter()
+                .any(|hint| lowered.iter().any(|value| value.contains(hint)))
+        })
+        .map(|adapter| adapter.descriptor().id)
+}
+
 /// Falls back to the first configured provider when the default one is not signed in.
 pub fn default_focus_provider() -> &'static str {
     let found = active();
@@ -306,6 +327,25 @@ mod tests {
                 descriptor.id
             );
         }
+    }
+
+    /// Window titles carry the strongest click-follow signal: terminals title their windows after
+    /// the running command, so the title of the window the user clicked names the assistant.
+    #[test]
+    fn hinted_provider_matches_titles_but_never_defaults() {
+        assert_eq!(
+            hinted_provider(&["robin — claude — 80×24"]),
+            Some("claude")
+        );
+        assert_eq!(
+            hinted_provider(&["", "Kimi Code · session"]),
+            Some(kimicode::DESCRIPTOR.id)
+        );
+        // No hint, no answer — the caller decides the fallback, not this function.
+        assert_eq!(hinted_provider(&["Finder"]), None);
+        assert_eq!(hinted_provider(&[]), None);
+        // Case-insensitive: AppKit reports names as displayed.
+        assert_eq!(hinted_provider(&["CLAUDE"]), Some("claude"));
     }
 
     #[test]

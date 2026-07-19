@@ -125,12 +125,23 @@ fn resolve(path: &Path) -> PathBuf {
 /// on a machine with ~2800 session files, and that cost grows with every session ever recorded. An
 /// event subscription costs nothing while the directories are idle and does not care how much
 /// history they hold.
-fn start_watching(roots: Vec<Root>, state: Arc<Observations>) -> Option<RecommendedWatcher> {
-    let attribution: Vec<Root> = roots
+/// Returns the watcher (when at least one root could be subscribed) together with the roots that
+/// could **not** be — so the caller can poll exactly those instead of silently dropping them. One
+/// unwatchable root (its whole parent chain missing at launch, say) must not cost the others
+/// their event subscription, and must not itself go dark until a restart.
+fn start_watching(
+    roots: Vec<Root>,
+    state: Arc<Observations>,
+) -> (Option<RecommendedWatcher>, Vec<Root>) {
+    // Everything downstream works on resolved paths: FSEvents reports fully resolved paths, so
+    // both the subscription target and the attribution prefix must live on the same side of any
+    // symlink (`/var` → `/private/var`, a prompt-history file symlinked to a synced volume).
+    let resolved: Vec<Root> = roots
         .iter()
         .map(|(provider, root)| (*provider, resolve(root)))
         .collect();
-    let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
+    let attribution = resolved.clone();
+    let watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
         // Watch errors are dropped rather than logged: the payload carries the offending paths.
         let Ok(event) = result else { return };
         let now = SystemTime::now();
@@ -139,11 +150,13 @@ fn start_watching(roots: Vec<Root>, state: Arc<Observations>) -> Option<Recommen
                 record(&state, provider, now);
             }
         }
-    })
-    .ok()?;
+    });
+    let Ok(mut watcher) = watcher else {
+        return (None, resolved);
+    };
 
-    let mut watched = 0usize;
-    for (_, root) in &roots {
+    let mut unwatched = Vec::new();
+    for (provider, root) in &resolved {
         // A CLI that has never run has no session directory yet, and one can equally be deleted
         // while the app is running. Subscribing to the parent covers both: the directory's
         // creation is itself an event, and `attribute` keeps the parent's other contents out.
@@ -154,12 +167,19 @@ fn start_watching(roots: Vec<Root>, state: Arc<Observations>) -> Option<Recommen
                 .filter(|path| path.is_dir())
                 .map(Path::to_path_buf)
         };
-        let Some(target) = target else { continue };
-        if watcher.watch(&target, RecursiveMode::Recursive).is_ok() {
-            watched += 1;
+        let subscribed = match target {
+            Some(target) => watcher.watch(&target, RecursiveMode::Recursive).is_ok(),
+            None => false,
+        };
+        if !subscribed {
+            unwatched.push((*provider, root.clone()));
         }
     }
-    (watched > 0).then_some(watcher)
+    if unwatched.len() == resolved.len() {
+        (None, unwatched)
+    } else {
+        (Some(watcher), unwatched)
+    }
 }
 
 /// What runs when FSEvents is unavailable.
@@ -291,7 +311,7 @@ pub struct ActivityTracker {
     state: Arc<Observations>,
     /// Held only to keep the subscription alive; dropping it unsubscribes.
     _watcher: Mutex<Option<RecommendedWatcher>>,
-    /// Present only when the subscription could not be established.
+    /// Polls the roots the subscription could not cover — all of them when it failed outright.
     fallback: Option<Mutex<Fallback>>,
 }
 
@@ -299,8 +319,8 @@ impl ActivityTracker {
     fn start() -> Self {
         let state = Arc::new(Observations::default());
         let roots = registered_roots();
-        let watcher = start_watching(roots.clone(), Arc::clone(&state));
-        let fallback = watcher.is_none().then(|| Mutex::new(Fallback::new(roots)));
+        let (watcher, unwatched) = start_watching(roots, Arc::clone(&state));
+        let fallback = (!unwatched.is_empty()).then(|| Mutex::new(Fallback::new(unwatched)));
         Self {
             state,
             _watcher: Mutex::new(watcher),
@@ -457,8 +477,10 @@ mod tests {
         let tree = TempTree::new("file-watch");
         let history = tree.0.join("history.jsonl");
         let state = Arc::new(Observations::default());
-        let watcher = start_watching(vec![("alpha", history.clone())], Arc::clone(&state));
+        let (watcher, unwatched) =
+            start_watching(vec![("alpha", history.clone())], Arc::clone(&state));
         assert!(watcher.is_some(), "watch could not be established");
+        assert!(unwatched.is_empty());
 
         fs::write(&history, b"x").unwrap();
 
@@ -470,6 +492,25 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         panic!("watcher observed no activity for a file root");
+    }
+
+    /// One root without an existing parent chain must not silence the fallback for itself: the
+    /// watcher covers what it can and hands the rest back for polling. (Regression: the fallback
+    /// used to be all-or-nothing, so a root created after launch went dark until restart.)
+    #[test]
+    fn an_unwatchable_root_is_returned_for_polling_not_dropped() {
+        let tree = TempTree::new("mixed");
+        let orphan = tree.0.join("missing-parent").join("history.jsonl");
+        let state = Arc::new(Observations::default());
+        let (watcher, unwatched) = start_watching(
+            vec![("alpha", tree.0.clone()), ("beta", orphan)],
+            Arc::clone(&state),
+        );
+        assert!(watcher.is_some(), "the healthy root should still be watched");
+        assert_eq!(
+            unwatched.iter().map(|(provider, _)| *provider).collect::<Vec<_>>(),
+            vec!["beta"]
+        );
     }
 
     /// A provider whose CLI was never installed contributes nothing and must not error.
@@ -510,8 +551,9 @@ mod tests {
         let tree = TempTree::new("watch");
         let state = Arc::new(Observations::default());
         let roots = vec![("alpha", tree.0.clone())];
-        let watcher = start_watching(roots, Arc::clone(&state));
+        let (watcher, unwatched) = start_watching(roots, Arc::clone(&state));
         assert!(watcher.is_some(), "watch could not be established");
+        assert!(unwatched.is_empty());
 
         let day = tree.0.join("2026").join("07").join("19");
         fs::create_dir_all(&day).unwrap();

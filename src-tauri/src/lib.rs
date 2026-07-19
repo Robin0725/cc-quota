@@ -1,3 +1,4 @@
+mod focus;
 mod models;
 mod providers;
 mod strings;
@@ -105,25 +106,72 @@ fn rounded_percent(window: &UsageWindow) -> u8 {
     window.remaining_percent.clamp(0.0, 100.0).round() as u8
 }
 
-/// The provider the widget should show.
+/// The provider the widget should show, by signal strength (§6 of the registry contract):
 ///
-/// The primary signal is which CLI last wrote to its own session directory (§6 of the registry
-/// contract). It replaces foreground-app attribution because that signal cannot work: all three
-/// CLIs are commonly run from a single terminal window, where the frontmost app is the terminal
-/// every time. Foreground attribution remains as the fallback for a machine that has not written
-/// any session yet, so the behaviour there is unchanged rather than wrong.
+/// 1. The window the user clicked, when it names a provider — via the frontmost app's identity,
+///    or via its focused window title once the Accessibility permission is granted. Clicking a
+///    window is the user pointing at an assistant; nothing outranks it.
+/// 2. Whoever the user last submitted a prompt to (the prompt-history signal). This covers every
+///    window the title cannot identify — tmux, renamed tabs, no permission.
+/// 3. The old foreground-app default, for a machine where nothing has ever been observed.
 #[tauri::command]
 fn get_active_provider() -> Option<String> {
-    resolve_active_provider(providers::activity::active_provider(), frontmost_provider)
+    resolve_active_provider(
+        focused_provider(),
+        providers::activity::active_provider(),
+        frontmost_provider,
+    )
 }
 
 fn resolve_active_provider(
+    focused: Option<&'static str>,
     activity: Option<&'static str>,
-    focus: impl FnOnce() -> Option<String>,
+    fallback: impl FnOnce() -> Option<String>,
 ) -> Option<String> {
-    match activity {
+    match focused.or(activity) {
         Some(provider) => Some(provider.to_owned()),
-        None => focus(),
+        None => fallback(),
+    }
+}
+
+/// The provider the focused window belongs to, or `None` when the click names nobody — which is
+/// most windows, and the cue to fall through to the prompt-history signal.
+///
+/// The window title is read only when the app's own identity names no provider, only with the
+/// Accessibility permission, and is discarded right after the in-memory hint match: titles carry
+/// project and document names, so they are never logged, stored, or returned (see `focus`).
+fn focused_provider() -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSWorkspace;
+
+        let application = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+        let bundle_id = application
+            .bundleIdentifier()
+            .map(|value| value.to_string());
+        // Clicking CC's own widget must not move the widget.
+        if bundle_id.as_deref() == Some("app.ccquota.desktop") {
+            return None;
+        }
+        let name = application.localizedName().map(|value| value.to_string());
+        let named = providers::hinted_provider(&[
+            bundle_id.as_deref().unwrap_or(""),
+            name.as_deref().unwrap_or(""),
+        ])
+        .or_else(|| {
+            let title = focus::focused_window_title(application.processIdentifier())?;
+            providers::hinted_provider(&[&title])
+        })?;
+        // A provider the user is signed out of has nothing to show; skipping it here lets the
+        // prompt-history tier pick someone who does.
+        providers::configured()
+            .iter()
+            .any(|adapter| adapter.descriptor().id == named)
+            .then_some(named)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
     }
 }
 
@@ -902,6 +950,16 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
         .map_err(|error| error.to_string())?;
     let language = MenuItem::with_id(app, "language", copy.switch_language, true, None::<&str>)
         .map_err(|error| error.to_string())?;
+    let follow_trusted = focus::trusted();
+    let follow_window = CheckMenuItem::with_id(
+        app,
+        "follow_window",
+        copy.follow_window,
+        !follow_trusted,
+        follow_trusted,
+        None::<&str>,
+    )
+    .map_err(|error| error.to_string())?;
     let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
     let autostart = CheckMenuItem::with_id(
         app,
@@ -926,6 +984,7 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
         &unlock,
         &refresh,
         &language,
+        &follow_window,
         &autostart,
         &separator_bottom,
         &quit,
@@ -1305,6 +1364,12 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
                 "en".into()
             };
         }),
+        "follow_window" => {
+            // Shows the system's Accessibility dialog; the checkbox reflects the granted state
+            // the next time the menu is rebuilt (granting may need an app restart to bite).
+            focus::request_trust();
+            refresh_tray_from_cache(app);
+        }
         "autostart" => {
             let manager = app.autolaunch();
             let enabled = manager.is_enabled().unwrap_or(false);
@@ -1529,12 +1594,26 @@ mod active_provider_tests {
     use super::resolve_active_provider;
     use std::cell::Cell;
 
-    /// Observed activity answers the question outright; the frontmost app is not even consulted,
-    /// which is the point — inside one terminal it would give the wrong provider.
+    /// Clicking a window is the user pointing at an assistant; it outranks who they last typed
+    /// to, or switching windows would not move the widget until the next prompt.
+    #[test]
+    fn the_focused_window_outranks_prompt_history() {
+        let asked = Cell::new(false);
+        let resolved = resolve_active_provider(Some("alpha"), Some("beta"), || {
+            asked.set(true);
+            Some("gamma".to_owned())
+        });
+        assert_eq!(resolved.as_deref(), Some("alpha"));
+        assert!(!asked.get());
+    }
+
+    /// Observed prompt activity answers the question when the click names nobody; the frontmost
+    /// app is not even consulted, which is the point — inside one terminal it would give the
+    /// wrong provider.
     #[test]
     fn activity_wins_and_the_foreground_app_is_never_asked() {
         let asked = Cell::new(false);
-        let resolved = resolve_active_provider(Some("alpha"), || {
+        let resolved = resolve_active_provider(None, Some("alpha"), || {
             asked.set(true);
             Some("beta".to_owned())
         });
@@ -1542,15 +1621,15 @@ mod active_provider_tests {
         assert!(!asked.get());
     }
 
-    /// With no session ever written there is nothing to rank, so the previous foreground-app
+    /// With no prompt ever observed there is nothing to rank, so the previous foreground-app
     /// behaviour stands rather than the widget guessing.
     #[test]
     fn falls_back_to_the_foreground_app_when_nothing_was_observed() {
         assert_eq!(
-            resolve_active_provider(None, || Some("beta".to_owned())).as_deref(),
+            resolve_active_provider(None, None, || Some("beta".to_owned())).as_deref(),
             Some("beta")
         );
-        assert_eq!(resolve_active_provider(None, || None), None);
+        assert_eq!(resolve_active_provider(None, None, || None), None);
     }
 }
 

@@ -11,6 +11,7 @@ CC is designed to be local-first and minimal.
 - The app sends the existing Claude Code OAuth token only to Anthropic's Claude usage endpoint.
 - The app reads the local Kimi Code OAuth credentials from `KIMI_CODE_HOME/credentials` or the user's `.kimi-code/credentials`, and sends that token only to the Kimi Code usage endpoint. The app reads the access token only: it never uses the refresh token, never asks for a new token, and never writes to the credentials file. An expired token is simply reported as a failed reading, leaving the Kimi Code CLI in sole control of its own login.
 - To decide which assistant is currently in use, the app subscribes to file system change events for each CLI's prompt-history path (or its session directory where the CLI keeps no history file). It records only the time of the most recent reported change for each provider. **It does not open, read, parse, or index any of those files**, and it does not retain their names or paths. Prompt history and session files contain the user's own writing and conversations; CC never looks inside them.
+- If the user grants the optional Accessibility permission (offered from the tray menu, never required), the app also reads the **title** of the focused window to tell which assistant that window belongs to. The title is compared against provider name hints in memory and discarded immediately: it is never stored, logged, or transmitted, and nothing but a provider id leaves that check. Without the permission this feature is silently skipped.
 
 ## What It Stores
 
