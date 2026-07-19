@@ -333,10 +333,7 @@ mod tests {
     /// the running command, so the title of the window the user clicked names the assistant.
     #[test]
     fn hinted_provider_matches_titles_but_never_defaults() {
-        assert_eq!(
-            hinted_provider(&["robin — claude — 80×24"]),
-            Some("claude")
-        );
+        assert_eq!(hinted_provider(&["robin — claude — 80×24"]), Some("claude"));
         assert_eq!(
             hinted_provider(&["", "Kimi Code · session"]),
             Some(kimicode::DESCRIPTOR.id)

@@ -506,9 +506,15 @@ mod tests {
             vec![("alpha", tree.0.clone()), ("beta", orphan)],
             Arc::clone(&state),
         );
-        assert!(watcher.is_some(), "the healthy root should still be watched");
+        assert!(
+            watcher.is_some(),
+            "the healthy root should still be watched"
+        );
         assert_eq!(
-            unwatched.iter().map(|(provider, _)| *provider).collect::<Vec<_>>(),
+            unwatched
+                .iter()
+                .map(|(provider, _)| *provider)
+                .collect::<Vec<_>>(),
             vec!["beta"]
         );
     }
