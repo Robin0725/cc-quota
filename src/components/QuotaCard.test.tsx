@@ -133,6 +133,36 @@ describe("floating widget interactions", () => {
     expect(screen.getByText("75%")).toBeTruthy();
   });
 
+  // The countdown occupies the slot that used to name the window, so a card that shows only the
+  // name again is the regression to catch: the time left is the whole point of the row.
+  it("puts the countdown beside the percentage, not the window's name", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-17T17:30:00Z")); // 2h30m before the 20:00Z short reset
+    try {
+      const { container } = render(<QuotaDetails snapshots={[codex]} onDrag={() => undefined} onToggleExpanded={() => undefined} language="en" />);
+      const primary = container.querySelector(".detail-primary > span");
+
+      expect(primary?.textContent).toBe("resets in 2h 30m");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // A weekly-only provider reads its countdown off the weekly window; nothing else on the card
+  // carries that instant, so losing it here would leave the reset time unreachable.
+  it("counts down the weekly window when that is all the provider reports", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-21T20:00:00Z")); // 2 days before the weekly 07-23T20:00Z reset
+    try {
+      const weeklyOnly: ProviderSnapshot = { ...codex, shortWindow: null };
+      const { container } = render(<QuotaDetails snapshots={[weeklyOnly]} onDrag={() => undefined} onToggleExpanded={() => undefined} language="en" />);
+
+      expect(container.querySelector(".detail-primary > span")?.textContent).toBe("resets in 2d 0h");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows nothing extra when the provider reports no per-model bucket", () => {
     const { container } = render(<QuotaDetails snapshots={[codex]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
 

@@ -213,8 +213,8 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
   const activeLanguage = normalizeLanguage(language);
   const dragInteractions = useDrag(onDrag);
   const labels = activeLanguage === "en"
-    ? { title: "Quota details", short: "5-hour", weekly: "Weekly", noWeekly: "No weekly window", loading: "Reading quota" }
-    : { title: "额度详情", short: "5 小时", weekly: "周额度", noWeekly: "未返回周额度", loading: "正在读取额度" };
+    ? { title: "Quota details", weekly: "Weekly", noWeekly: "No weekly window", loading: "Reading quota" }
+    : { title: "额度详情", weekly: "周额度", noWeekly: "未返回周额度", loading: "正在读取额度" };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -253,9 +253,14 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
               </div>
               {selected && percent !== null ? (
                 <>
+                  {/* The countdown sits where the window's name used to, because the time left is
+                      what the number is read against: a percentage means one thing with two hours
+                      to go and another with five days. Which window it belongs to stays legible
+                      from the countdown's own scale — hours for the short window, days for the
+                      weekly one. */}
                   <div className="detail-primary">
                     <strong>{percent}<small>%</small></strong>
-                    <span>{selected.kind === "short" ? labels.short : labels.weekly}</span>
+                    <span>{formatResetTime(selected.value.resetsAt, new Date(), activeLanguage)}</span>
                   </div>
                   <div className={`detail-progress detail-progress--tier-${quotaTier(percent)}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
                     <i style={{ width: `${percent}%` }} />
@@ -264,7 +269,6 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
                       them onto one line. They stay stacked at one and two providers. */}
                   <div className="detail-footer">
                     <div className="detail-meta">
-                      <span>{formatResetTime(selected.value.resetsAt, new Date(), activeLanguage)}</span>
                       <span>{weeklyPercent === null ? labels.noWeekly : `${labels.weekly} ${weeklyPercent}%`}</span>
                     </div>
                     {(snapshot.scopedWindows ?? []).length > 0 ? (
