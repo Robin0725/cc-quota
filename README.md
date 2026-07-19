@@ -1,5 +1,7 @@
 # CC Quota
 
+**English** · [简体中文](README.zh-CN.md)
+
 <img src="docs/images/menubar-capsules.png" alt="Codex, Claude and Kimi Code quota capsules in the macOS menu bar" width="290">
 
 *Codex, Claude and Kimi Code quota, live in the menu bar. The dots under each capsule count the hours left in the 5-hour window.*
@@ -65,9 +67,18 @@ Open the menu to inspect reset times, refresh immediately, show or hide the floa
 
 The floating window is optional and off by default. Enabled, it shows one dominant percentage for whichever assistant you last worked with; clicking it opens the detail panel directly below, one card per signed-in provider, with the exact reset time and the weekly figure alongside the 5-hour one.
 
-<img src="docs/images/floating-widget-panel.png" alt="The compact floating widget and the detail panel it opens, showing Codex, Claude and Kimi Code cards" width="420">
+<table>
+<tr>
+<td><img src="docs/images/floating-widget-panel-en.png" alt="The floating widget and its detail panel in English" width="380"></td>
+<td><img src="docs/images/floating-widget-panel-zh.png" alt="The floating widget and its detail panel in Chinese" width="380"></td>
+</tr>
+<tr>
+<td align="center"><em>English</em></td>
+<td align="center"><em>简体中文</em></td>
+</tr>
+</table>
 
-*Shown with the interface language set to Chinese; the tray menu switches it.*
+The interface ships in both languages; the tray menu switches between them.
 
 ## How it works
 
