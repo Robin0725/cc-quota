@@ -18,6 +18,12 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
+## CC Quota 0.5.6 highlights
+
+- Puts each window's reset countdown next to the figure it belongs to. The detail card carried a single countdown, silently attached to whichever window drove the big number, so the weekly figure sat next to a time that was not its own.
+- Gives the weekly figure its own countdown, and omits the weekly row entirely for a provider whose only window is the weekly one, rather than printing that percentage twice on one card.
+- Splits the detail card into a figure column and a weekly column, marked by an accent rail, so the number and its countdown read as one stack instead of interleaved lines.
+
 ## CC Quota 0.5.5 highlights
 
 - Wears a monochrome app icon: two white interlocking C's on a near-black shell.
