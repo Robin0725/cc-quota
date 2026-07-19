@@ -969,7 +969,11 @@ fn refresh_tray_from_cache(app: &AppHandle) {
 }
 
 fn unavailable_snapshots(message: &str) -> Vec<ProviderSnapshot> {
-    providers::all()
+    // `active`, not `all`: during the cold-start window where a fetch is in flight and the cache
+    // is still empty, a colliding request must not invent cards for providers the user never
+    // signed into. On a machine with no logins at all, `active` still falls back to the full
+    // registry so the capsules can explain themselves.
+    providers::active()
         .iter()
         .map(|adapter| {
             let descriptor = adapter.descriptor();
@@ -2090,13 +2094,14 @@ mod tray_icon_tests {
         );
     }
 
-    /// Every registered provider must be reachable from the failure path, or a signed-out account
-    /// would simply vanish from the menu instead of explaining itself.
+    /// Every provider the app is showing must be reachable from the failure path, or a signed-out
+    /// account would simply vanish from the menu instead of explaining itself.
     #[test]
-    fn unavailable_snapshots_cover_the_whole_registry() {
+    fn unavailable_snapshots_cover_every_shown_provider() {
         let values = super::unavailable_snapshots("offline");
-        assert_eq!(values.len(), providers::all().len());
-        for (snapshot, adapter) in values.iter().zip(providers::all()) {
+        let shown = providers::active();
+        assert_eq!(values.len(), shown.len());
+        for (snapshot, adapter) in values.iter().zip(shown) {
             assert_eq!(snapshot.provider, adapter.descriptor().id);
             assert_eq!(snapshot.status, "unavailable");
         }

@@ -52,14 +52,16 @@ pub trait ProviderAdapter: Send + Sync {
     /// Existence check only: no network requests, no decrypting or echoing credentials.
     fn is_configured(&self) -> bool;
 
-    /// Directories this provider's CLI writes to while it works (session logs and the like), used
-    /// to tell which provider the user is currently using — see [`activity`]. Returning an empty
-    /// vector means the provider offers no activity signal: it will never be picked as the active
-    /// one, but its quota still displays normally.
+    /// Paths that change only when the *user* interacts with this provider's CLI — prompt-history
+    /// files, not session logs — used to tell which provider the user is currently working with;
+    /// see [`activity`]. Session directories are the wrong signal here: an agent left running in
+    /// the background writes them continuously and would pin the widget to itself. A path may be a
+    /// file or a directory. Returning an empty vector means the provider offers no activity
+    /// signal: it will never be picked as the active one, but its quota still displays normally.
     ///
-    /// The paths are watched and stat'd, never read: their contents are the user's conversations.
-    /// Directories that do not exist are expected (the user may not have installed that CLI) and
-    /// must not be treated as an error here.
+    /// The paths are watched and stat'd, never read: prompt history is the user's own writing.
+    /// Paths that do not exist are expected (the user may not have installed that CLI) and must
+    /// not be treated as an error here.
     fn activity_paths(&self) -> Vec<PathBuf>;
 
     /// Reads the quota. Never panics, never returns `Err`: failures come back as

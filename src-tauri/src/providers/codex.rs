@@ -64,6 +64,10 @@ fn auth_path() -> Option<PathBuf> {
 }
 
 /// Where the CLI records its transcripts. Watched for write activity only; never read.
+///
+/// Still the session directory, unlike Claude and Kimi which expose prompt-history paths: this
+/// Codex install has no file that only user input touches. Known limit (contract §6.1b): an
+/// unattended Codex run attributes to codex.
 fn sessions_path() -> Option<PathBuf> {
     codex_home().map(|home| home.join("sessions"))
 }

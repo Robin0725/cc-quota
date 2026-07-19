@@ -45,7 +45,11 @@ export default function App() {
     try {
       const values = await fetchSnapshots(force);
       if (request !== latestRequest.current) return;
-      failures.current = values.some((item) => item.status !== "ok") ? failures.current + 1 : 0;
+      // Healthy means "someone answered", not "everyone answered": a provider whose short-lived
+      // token has lapsed while its CLI is idle (Kimi's lives ~15 minutes) reports a failure on
+      // every round as its normal resting state. Counting that as failure pinned the poll at the
+      // 30-minute backoff ceiling and disabled the near-reset fast path whenever Kimi was idle.
+      failures.current = values.some((item) => item.status === "ok") ? 0 : failures.current + 1;
       setSnapshots((current) => mergeSnapshots(current, values));
     } catch {
       if (request !== latestRequest.current) return;

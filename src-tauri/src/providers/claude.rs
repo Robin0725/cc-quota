@@ -34,7 +34,7 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     fn activity_paths(&self) -> Vec<PathBuf> {
-        projects_path().into_iter().collect()
+        history_path().into_iter().collect()
     }
 
     async fn fetch_snapshot(&self, client: &reqwest::Client) -> ProviderSnapshot {
@@ -62,7 +62,14 @@ fn has_local_login() -> bool {
 
 #[cfg(target_os = "macos")]
 fn keychain_entry_exists() -> bool {
-    std::process::Command::new("/usr/bin/security")
+    // This existence probe runs synchronously inside `is_configured`, which the 750ms
+    // active-provider poll reaches through `configured()` — outside `PROVIDER_FETCH_BUDGET`. A
+    // locked keychain can make `security` block indefinitely, so the wait is bounded here: on
+    // timeout the child is killed and the answer is "not found", the same as any other probe
+    // failure, and the 30s `CONFIGURED_TTL` keeps a wedged keychain from being probed repeatedly.
+    const PROBE_BUDGET: Duration = Duration::from_secs(2);
+
+    let child = std::process::Command::new("/usr/bin/security")
         .args([
             "find-generic-password",
             "-a",
@@ -73,9 +80,22 @@ fn keychain_entry_exists() -> bool {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+        .spawn();
+    let Ok(mut child) = child else { return false };
+    let deadline = std::time::Instant::now() + PROBE_BUDGET;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -103,10 +123,12 @@ fn credentials_path() -> Option<PathBuf> {
     config_directory().map(|directory| directory.join(".credentials.json"))
 }
 
-/// Where the CLI records its transcripts, one directory per project. Watched for write activity
-/// only; never read.
-fn projects_path() -> Option<PathBuf> {
-    config_directory().map(|directory| directory.join("projects"))
+/// Appended to each time the user submits a prompt, and only then — background or headless runs
+/// leave it alone, which is what makes it the "user is working here" signal rather than the
+/// project transcripts, which an unattended agent writes continuously. Watched by modification
+/// time only; never read.
+fn history_path() -> Option<PathBuf> {
+    config_directory().map(|directory| directory.join("history.jsonl"))
 }
 
 fn keychain_account() -> String {

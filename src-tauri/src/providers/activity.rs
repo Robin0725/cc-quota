@@ -2,8 +2,11 @@
 //!
 //! The frontmost application cannot answer this: Codex, Claude and Kimi are routinely all run from
 //! the same terminal window, so the foreground app is the terminal in every case. What does
-//! separate them is that each CLI writes into its own session directory while it works, so the
-//! provider that wrote most recently is the one the user is using. See §6 of
+//! separate them is that each CLI leaves a trace when the user submits a prompt — its
+//! prompt-history file — so the provider whose history moved most recently is the one the user is
+//! working with. Session directories were the original signal and turned out to be wrong: an
+//! agent left running unattended writes its session continuously and pins the widget to itself.
+//! A root may therefore be a single file, not just a directory. See §6 of
 //! `docs/provider-registry-contract.md`.
 //!
 //! Two rules govern this module:
@@ -187,6 +190,15 @@ impl FallbackEntry {
     }
 
     fn rediscover(&mut self) {
+        // A root may be a single prompt-history file rather than a tree; it is then its own
+        // "newest file" and there is nothing to descend into.
+        if self.root.is_file() {
+            self.directory = self.root.clone();
+            self.file = Some(self.root.clone());
+            self.directory_stamp = modified(&self.directory);
+            self.discovered = true;
+            return;
+        }
         match newest_file(&self.root) {
             Some((file, directory)) => {
                 self.directory = directory;
@@ -418,6 +430,46 @@ mod tests {
             observed.contains_key("alpha"),
             "fallback observed no activity"
         );
+    }
+
+    /// A prompt-history root is a single file: the fallback must stat it directly rather than try
+    /// to descend into it as a tree.
+    #[test]
+    fn the_fallback_handles_a_file_root() {
+        let tree = TempTree::new("file-root");
+        let history = tree.0.join("history.jsonl");
+        fs::write(&history, b"x").unwrap();
+
+        let state = Observations::default();
+        let mut fallback = Fallback::new(vec![("alpha", history)]);
+        fallback.poll(&state);
+        assert!(
+            state.lock().unwrap().contains_key("alpha"),
+            "fallback observed no activity for a file root"
+        );
+    }
+
+    /// With a file root the watcher subscribes to the parent directory; a write to the file must
+    /// still attribute to its provider. (`attribution_ignores_paths_outside_the_session_directory`
+    /// covers the converse: the parent's other contents do not attribute.)
+    #[test]
+    fn the_watcher_attributes_a_file_root_through_its_parent() {
+        let tree = TempTree::new("file-watch");
+        let history = tree.0.join("history.jsonl");
+        let state = Arc::new(Observations::default());
+        let watcher = start_watching(vec![("alpha", history.clone())], Arc::clone(&state));
+        assert!(watcher.is_some(), "watch could not be established");
+
+        fs::write(&history, b"x").unwrap();
+
+        let deadline = SystemTime::now() + Duration::from_secs(10);
+        while SystemTime::now() < deadline {
+            if state.lock().unwrap().contains_key("alpha") {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        panic!("watcher observed no activity for a file root");
     }
 
     /// A provider whose CLI was never installed contributes nothing and must not error.

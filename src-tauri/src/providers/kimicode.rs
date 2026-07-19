@@ -40,7 +40,7 @@ impl ProviderAdapter for KimiCodeAdapter {
     }
 
     fn activity_paths(&self) -> Vec<PathBuf> {
-        sessions_path().into_iter().collect()
+        user_history_path().into_iter().collect()
     }
 
     async fn fetch_snapshot(&self, client: &reqwest::Client) -> ProviderSnapshot {
@@ -74,9 +74,12 @@ fn credentials_path() -> Option<PathBuf> {
     kimi_home().map(|home| home.join("credentials").join("kimi-code.json"))
 }
 
-/// Where the CLI records its transcripts. Watched for write activity only; never read.
-fn sessions_path() -> Option<PathBuf> {
-    kimi_home().map(|home| home.join("sessions"))
+/// Written only when the user submits a prompt. The sessions directory next to it is the wrong
+/// activity signal: a Kimi agent grinding through a long task in the background streams into it
+/// every minute or two, and the widget would follow that agent instead of the person. Watched by
+/// modification time only; never read.
+fn user_history_path() -> Option<PathBuf> {
+    kimi_home().map(|home| home.join("user-history"))
 }
 
 fn text<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {

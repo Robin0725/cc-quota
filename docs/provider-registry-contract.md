@@ -48,7 +48,7 @@ pub trait ProviderAdapter: Send + Sync {
     /// 只做存在性检查,不得发网络请求、不得解密/输出凭证内容。
     fn is_configured(&self) -> bool;
 
-    /// 该 provider 的 CLI 在活动时会写入的目录(会话日志等)。
+    /// 只有用户亲自输入才会变动的路径(提示历史文件/目录,见 §6.1b);可以是文件。
     /// 用于判断"用户此刻在用哪个" —— 见 §六。返回空切片表示该 provider
     /// 不提供活动信号(它就永远不会被选为活动 provider,但仍正常显示配额)。
     fn activity_paths(&self) -> Vec<PathBuf>;
@@ -236,6 +236,22 @@ Accept: application/json
 
 改用**活动信号**:每个 CLI 干活时都在自己的会话目录里写文件,谁刚写过谁就是用户正在用的。
 跨终端、跨 tmux 都成立,且不需要辅助功能权限。
+
+### 6.1b 信号必须是"用户输入",不是"agent 写盘"(2026-07-19 修订)
+
+会话目录写入做信号有一个真实翻车场景:**后台 agent 会劫持悬浮球**。实测一个 Kimi agent
+在后台跑长任务时,每一两分钟就往 sessions 写一次流式输出,于是"最近写盘者"永远是 kimi,
+用户明明在 Claude 里打字,悬浮球却纹丝不动。
+
+修订:活动信号改为**只有用户亲自输入才会变动的文件**——各 CLI 的提示历史:
+
+- claude → `~/.claude/history.jsonl`(每次用户提交提示时追加;headless/后台运行不写它)
+- kimicode → `~/.kimi-code/user-history/`
+- codex → 仍用 `~/.codex/sessions`。本机 Codex 没有独立的用户输入历史文件,
+  已知局限:后台 codex 任务仍会把悬浮球吸到 codex 上;等它有等价文件再切换。
+
+监听机制不变(FSEvents + stat,只看 mtime 永不读内容)。`activity_paths` 允许返回**文件**路径,
+不只是目录;监听层对文件根按其父目录订阅、按前缀归属。
 
 ### 6.2 必须用 FSEvents,不许轮询遍历
 
