@@ -114,44 +114,81 @@ fn rounded_percent(window: &UsageWindow) -> u8 {
 /// 2. Whoever the user last submitted a prompt to (the prompt-history signal). This covers every
 ///    window the title cannot identify — tmux, renamed tabs, no permission.
 /// 3. The old foreground-app default, for a machine where nothing has ever been observed.
+///
+/// Clicking the widget itself is none of these: that click steals the very focus tier 1 was
+/// reading, so the answer is whatever was already showing, frozen until the user points at
+/// something else.
 #[tauri::command]
 fn get_active_provider() -> Option<String> {
+    static SHOWN: Mutex<Option<String>> = Mutex::new(None);
+    let mut shown = SHOWN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     resolve_active_provider(
         focused_provider(),
         providers::activity::active_provider(),
         frontmost_provider,
+        &mut shown,
     )
 }
 
-fn resolve_active_provider(
-    focused: Option<&'static str>,
-    activity: Option<&'static str>,
-    fallback: impl FnOnce() -> Option<String>,
-) -> Option<String> {
-    match focused.or(activity) {
-        Some(provider) => Some(provider.to_owned()),
-        None => fallback(),
-    }
+/// What the frontmost application says about where the user is pointing.
+enum Focus {
+    /// CC's own widget: the user is interacting with the display, not choosing an assistant.
+    Widget,
+    /// The focused window names this provider.
+    Provider(&'static str),
+    /// The click names nobody — most windows, and the cue to consult the prompt-history signal.
+    Unknown,
 }
 
-/// The provider the focused window belongs to, or `None` when the click names nobody — which is
-/// most windows, and the cue to fall through to the prompt-history signal.
+fn resolve_active_provider(
+    focus: Focus,
+    activity: Option<&'static str>,
+    fallback: impl FnOnce() -> Option<String>,
+    shown: &mut Option<String>,
+) -> Option<String> {
+    // Expanding the widget must not switch it: the moment before the click, tier 1 may have been
+    // naming a provider through the focused window, and that window just lost its focus to us.
+    // Falling through to the prompt-history tier here made the display jump on every click.
+    if matches!(focus, Focus::Widget) {
+        if shown.is_some() {
+            return shown.clone();
+        }
+    }
+    let focused = match focus {
+        Focus::Provider(provider) => Some(provider),
+        _ => None,
+    };
+    let result = match focused.or(activity) {
+        Some(provider) => Some(provider.to_owned()),
+        None => fallback(),
+    };
+    if result.is_some() {
+        shown.clone_from(&result);
+    }
+    result
+}
+
+/// Where the focused window points: at CC's own widget, at a provider it names, or at nobody —
+/// which is most windows, and the cue to fall through to the prompt-history signal.
 ///
 /// The window title is read only when the app's own identity names no provider, only with the
 /// Accessibility permission, and is discarded right after the in-memory hint match: titles carry
 /// project and document names, so they are never logged, stored, or returned (see `focus`).
-fn focused_provider() -> Option<&'static str> {
+fn focused_provider() -> Focus {
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::NSWorkspace;
 
-        let application = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+        let Some(application) = NSWorkspace::sharedWorkspace().frontmostApplication() else {
+            return Focus::Unknown;
+        };
         let bundle_id = application
             .bundleIdentifier()
             .map(|value| value.to_string());
-        // Clicking CC's own widget must not move the widget.
         if bundle_id.as_deref() == Some("app.ccquota.desktop") {
-            return None;
+            return Focus::Widget;
         }
         let name = application.localizedName().map(|value| value.to_string());
         let named = providers::hinted_provider(&[
@@ -161,17 +198,21 @@ fn focused_provider() -> Option<&'static str> {
         .or_else(|| {
             let title = focus::focused_window_title(application.processIdentifier())?;
             providers::hinted_provider(&[&title])
-        })?;
+        });
         // A provider the user is signed out of has nothing to show; skipping it here lets the
         // prompt-history tier pick someone who does.
-        providers::configured()
-            .iter()
-            .any(|adapter| adapter.descriptor().id == named)
-            .then_some(named)
+        match named.filter(|named| {
+            providers::configured()
+                .iter()
+                .any(|adapter| adapter.descriptor().id == *named)
+        }) {
+            Some(provider) => Focus::Provider(provider),
+            None => Focus::Unknown,
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
-        None
+        Focus::Unknown
     }
 }
 
@@ -1596,7 +1637,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod active_provider_tests {
-    use super::resolve_active_provider;
+    use super::{resolve_active_provider, Focus};
     use std::cell::Cell;
 
     /// Clicking a window is the user pointing at an assistant; it outranks who they last typed
@@ -1604,12 +1645,19 @@ mod active_provider_tests {
     #[test]
     fn the_focused_window_outranks_prompt_history() {
         let asked = Cell::new(false);
-        let resolved = resolve_active_provider(Some("alpha"), Some("beta"), || {
-            asked.set(true);
-            Some("gamma".to_owned())
-        });
+        let mut shown = None;
+        let resolved = resolve_active_provider(
+            Focus::Provider("alpha"),
+            Some("beta"),
+            || {
+                asked.set(true);
+                Some("gamma".to_owned())
+            },
+            &mut shown,
+        );
         assert_eq!(resolved.as_deref(), Some("alpha"));
         assert!(!asked.get());
+        assert_eq!(shown.as_deref(), Some("alpha"));
     }
 
     /// Observed prompt activity answers the question when the click names nobody; the frontmost
@@ -1618,10 +1666,15 @@ mod active_provider_tests {
     #[test]
     fn activity_wins_and_the_foreground_app_is_never_asked() {
         let asked = Cell::new(false);
-        let resolved = resolve_active_provider(None, Some("alpha"), || {
-            asked.set(true);
-            Some("beta".to_owned())
-        });
+        let resolved = resolve_active_provider(
+            Focus::Unknown,
+            Some("alpha"),
+            || {
+                asked.set(true);
+                Some("beta".to_owned())
+            },
+            &mut None,
+        );
         assert_eq!(resolved.as_deref(), Some("alpha"));
         assert!(!asked.get());
     }
@@ -1631,10 +1684,46 @@ mod active_provider_tests {
     #[test]
     fn falls_back_to_the_foreground_app_when_nothing_was_observed() {
         assert_eq!(
-            resolve_active_provider(None, None, || Some("beta".to_owned())).as_deref(),
+            resolve_active_provider(Focus::Unknown, None, || Some("beta".to_owned()), &mut None)
+                .as_deref(),
             Some("beta")
         );
-        assert_eq!(resolve_active_provider(None, None, || None), None);
+        assert_eq!(
+            resolve_active_provider(Focus::Unknown, None, || None, &mut None),
+            None
+        );
+    }
+
+    /// Clicking the widget steals the focus tier 1 was reading, so the display freezes on its
+    /// previous answer instead of falling through to the prompt-history tier — which is exactly
+    /// the jump this guards against: working in a codex window, expanding the widget must not
+    /// flip it to whoever was last typed to.
+    #[test]
+    fn clicking_the_widget_freezes_the_display() {
+        let asked = Cell::new(false);
+        let mut shown = Some("alpha".to_owned());
+        let resolved = resolve_active_provider(
+            Focus::Widget,
+            Some("beta"),
+            || {
+                asked.set(true);
+                Some("gamma".to_owned())
+            },
+            &mut shown,
+        );
+        assert_eq!(resolved.as_deref(), Some("alpha"));
+        assert!(!asked.get());
+        assert_eq!(shown.as_deref(), Some("alpha"));
+    }
+
+    /// A widget click before anything was ever shown has nothing to freeze; the normal tiers
+    /// answer so a fresh launch is not stuck empty.
+    #[test]
+    fn a_widget_click_with_nothing_shown_falls_through() {
+        let mut shown = None;
+        let resolved = resolve_active_provider(Focus::Widget, Some("alpha"), || None, &mut shown);
+        assert_eq!(resolved.as_deref(), Some("alpha"));
+        assert_eq!(shown.as_deref(), Some("alpha"));
     }
 }
 
