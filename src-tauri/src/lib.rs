@@ -151,10 +151,8 @@ fn resolve_active_provider(
     // Expanding the widget must not switch it: the moment before the click, tier 1 may have been
     // naming a provider through the focused window, and that window just lost its focus to us.
     // Falling through to the prompt-history tier here made the display jump on every click.
-    if matches!(focus, Focus::Widget) {
-        if shown.is_some() {
-            return shown.clone();
-        }
+    if matches!(focus, Focus::Widget) && shown.is_some() {
+        return shown.clone();
     }
     let focused = match focus {
         Focus::Provider(provider) => Some(provider),
