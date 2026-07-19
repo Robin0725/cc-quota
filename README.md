@@ -61,6 +61,14 @@ Time dots appear only for the 5-hour window. When CC has to fall back to weekly 
 
 Open the menu to inspect reset times, refresh immediately, show or hide the floating window, toggle always-on-top, unlock mouse passthrough, switch language, control launch at login, or quit CC.
 
+## Floating window
+
+The floating window is optional and off by default. Enabled, it shows one dominant percentage for whichever assistant you last worked with; clicking it opens the detail panel directly below, one card per signed-in provider, with the exact reset time and the weekly figure alongside the 5-hour one.
+
+<img src="docs/images/floating-widget-panel.png" alt="The compact floating widget and the detail panel it opens, showing Codex, Claude and Kimi Code cards" width="420">
+
+*Shown with the interface language set to Chinese; the tray menu switches it.*
+
 ## How it works
 
 CC reads the existing Codex Desktop, Claude Code, and Kimi Code login state on the same Mac, then calls each provider's quota service. It does not estimate quota from token counts, redeem reset credits, or modify account settings.
