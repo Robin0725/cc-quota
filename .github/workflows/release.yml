@@ -34,6 +34,13 @@ jobs:
         run: |
           app="src-tauri/target/universal-apple-darwin/release/bundle/macos/$(jq -r .productName src-tauri/tauri.conf.json).app"
           test -d "$app" || { echo "bundle not found: $app"; ls -1 src-tauri/target/universal-apple-darwin/release/bundle/macos/; exit 1; }
+          # Ad-hoc sign every slice. The universal lipo only carries the linker's arm64 ad-hoc
+          # signature, leaving the x86_64 slice unsigned — macOS then records the unsigned
+          # slice's candidate hashes when the user grants Accessibility, while the arm64 slice
+          # actually runs, so the grant never matches the process and silently does nothing.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --verbose --arch x86_64 "$app"
+          codesign --verify --verbose --arch arm64 "$app"
           ditto -c -k --sequesterRsrc --keepParent "$app" cc-macos-universal-unsigned.zip
       - uses: actions/upload-artifact@v4
         with:
