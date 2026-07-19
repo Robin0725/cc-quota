@@ -80,6 +80,10 @@ Codex · week 42% · 07/20 18:00 reset
 
 界面提供中英两种语言，在托盘菜单里切换。
 
+悬浮窗会跟随你最近输入过的那个助手，所以摆在你眼前的数字，始终属于你正在用的那个工具。下面这段里，它随着工作在 Codex（`CX`，走周额度）和 Claude（`CL`，走 5 小时窗口）之间来回切换：
+
+<img src="docs/images/follow-switch.gif" alt="悬浮窗随当前助手变化，在 Codex 与 Claude 的读数之间切换" width="200">
+
 ## 工作原理
 
 CC 读取同一台 Mac 上已有的 Codex Desktop、Claude Code 和 Kimi Code 登录态，然后调用各服务商的额度服务。它不会用 token 计数去估算额度，不会兑换重置额度，也不会修改账户设置。

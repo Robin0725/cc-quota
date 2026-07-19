@@ -80,6 +80,10 @@ The floating window is optional and off by default. Enabled, it shows one domina
 
 The interface ships in both languages; the tray menu switches between them.
 
+The widget follows whichever assistant you last typed to, so the number in front of you belongs to the tool you are actually using. Here it moves between Codex (`CX`, on its weekly window) and Claude (`CL`, on a 5-hour one) as the work moves between them:
+
+<img src="docs/images/follow-switch.gif" alt="The floating widget switching between the Codex and Claude readings as the active assistant changes" width="200">
+
 ## How it works
 
 CC reads the existing Codex Desktop, Claude Code, and Kimi Code login state on the same Mac, then calls each provider's quota service. It does not estimate quota from token counts, redeem reset credits, or modify account settings.
