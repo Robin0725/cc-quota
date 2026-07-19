@@ -146,63 +146,86 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .details-providers { flex: 1 1 auto; min-height: 0; display: grid; grid-auto-rows: minmax(min-content, 1fr); gap: 10px; overflow-y: auto; overscroll-behavior: contain; }
 /* Deliberately no `overflow: hidden` here: with the row floor above, the card never needs to clip,
    and leaving the clip in place would only let a future overflow disappear quietly again. */
-/* Column flex with `space-between`: grid rows stretch the card past its content height, and
-   without this the slack pools as dead space under the last line of every card. Spreading it
-   between the card's blocks keeps the vertical rhythm instead. No heights are set anywhere, so
-   the `min-content` row floor above still decides when the panel scrolls. */
-.detail-provider { display: flex; flex-direction: column; justify-content: space-between; padding: 11px 13px 10px; border: 1px solid rgba(255, 255, 255, 0.68); border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56); }
+/* Two-column body inside the card: the live figure owns the left column with its reset countdown
+   directly beneath it, while the weekly figure and any scoped buckets form a right-aligned column
+   of their own. Both columns bottom-align, so the card reads as two stacks — number → countdown
+   on the left, weekly → Fable on the right — instead of four interleaved lines. `minmax(0, …)` on
+   both tracks is what lets an over-long line ellipsise rather than shove the other column out of
+   the card, and `align-content: space-between` spreads the slack when a row stretches taller than
+   its content. No heights are set anywhere, so the `min-content` row floor above still decides
+   when the panel scrolls. */
+.detail-provider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  grid-template-areas:
+    "heading heading"
+    "primary footer"
+    "progress progress";
+  column-gap: 12px;
+  align-content: space-between;
+  padding: 11px 13px 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-left: 3px solid var(--provider-accent, #7d8894);
+  border-radius: 20px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
+}
+/* Provider identity moves from a full tint wash to a left rail over a much fainter tint: the card
+   reads as one neutral surface and the accent does the marking. Every hue is still mixed from
+   `--provider-accent`, which the component sets inline from the descriptor — nothing here names a
+   provider's colour. The plain layer stays first for WebKit builds older than `color-mix`. */
 .detail-provider { background: rgba(252, 253, 255, 0.9); }
-.detail-provider { background: linear-gradient(145deg, color-mix(in srgb, var(--provider-accent, #7d8894) 7%, rgba(255, 255, 255, 0.94)), color-mix(in srgb, var(--provider-accent, #7d8894) 22%, rgba(255, 255, 255, 0.85))); }
+.detail-provider { background: linear-gradient(145deg, color-mix(in srgb, var(--provider-accent, #7d8894) 7%, rgba(255, 255, 255, 0.94)), color-mix(in srgb, var(--provider-accent, #7d8894) 14%, rgba(255, 255, 255, 0.88))); }
 /* Three providers, scoped buckets included, fit the 320×320 panel without scrolling.
  *
- * The budget is exact: the list is 226px tall, so three rows plus two 8px gaps leave 70px a card,
- * of which 12px goes to padding and borders. What follows spends the remaining 58px.
+ * The budget is exact: the list is 247px tall, so three rows plus two 8px gaps leave 77px a card,
+ * of which 16px goes to padding and borders. What follows spends the remaining 61px: heading 10,
+ * body row 36 (the 24px figure over its countdown line — Claude's weekly-plus-Fable column
+ * opposite tops out at 23), progress 4, and 11 of spacing between the four.
  *
- * The savings come from vertical rhythm, not from type size: leading is pinned to 1 instead of the
- * browser's ~1.2 default, and the meta and scoped rows fold onto a single line — together that is
- * most of the reduction. The small text stays at its usual 8px, and the percentage stays far and
- * away the largest thing in the card, so the number is still what the eye lands on.
+ * Stacking the two columns is what buys the room: where the old layout folded meta and scoped
+ * onto one line to survive, the right-hand column lets the figure grow back to 24px while the
+ * small text keeps its usual 8px, so the number stays what the eye lands on.
  *
  * This is a comfort optimisation, never a guarantee: if content grows past the budget (a provider
  * reporting two scoped buckets, say) the `min-content` floor above still wins and the panel
  * scrolls. Nothing here may be tightened to the point of relying on clipping. */
 .details-providers:has(> .detail-provider:nth-child(3)) { gap: 8px; }
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-provider { padding: 6px 11px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-provider { padding: 7px 11px 7px 12px; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-provider-heading { line-height: 1; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-primary { margin-top: 3px; }
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong { font-size: 20px; }
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong small { font-size: 9px; }
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary > span { line-height: 1; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong { font-size: 24px; }
+.details-providers:has(> .detail-provider:nth-child(3)) .detail-primary strong small { font-size: 10px; }
 .details-providers:has(> .detail-provider:nth-child(3)) .detail-progress { margin-top: 5px; }
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-footer { display: flex; align-items: baseline; gap: 0 8px; margin-top: 4px; line-height: 1.1; }
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-meta { flex: 1 1 auto; min-width: 0; margin-top: 0; }
-.details-providers:has(> .detail-provider:nth-child(3)) .detail-scoped { flex: 0 0 auto; margin-top: 0; }
-.detail-provider-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.detail-provider-heading { grid-area: heading; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .detail-provider-heading div { display: flex; align-items: center; gap: 6px; }
 .detail-provider-heading i { width: 7px; height: 7px; border-radius: 50%; background: var(--provider-accent, #7d8894); box-shadow: 0 0 0 3px color-mix(in srgb, var(--provider-accent, #7d8894) 10%, transparent); }
 .detail-provider-heading strong { font-size: 10px; font-weight: 780; letter-spacing: 0.08em; }
 .detail-provider-heading > span { color: rgba(23, 33, 44, 0.48); font-size: 8px; font-weight: 690; letter-spacing: 0.06em; }
-.detail-primary { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 5px; }
+/* The countdown drops directly under the figure it belongs to, so the two read as one stack; the
+   window stays legible from the countdown's own scale — hours for the short window, days for the
+   weekly one. Nowrap plus ellipsis is the guard, because "resets in 5d 18h" is far longer than
+   the window name this slot used to carry. */
+.detail-primary { grid-area: primary; align-self: end; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; margin-top: 5px; }
 .detail-primary strong { font-size: 27px; font-weight: 570; letter-spacing: -0.06em; line-height: 0.9; font-variant-numeric: tabular-nums; }
 .detail-primary strong small { margin-left: 1px; font-size: 11px; font-weight: 760; letter-spacing: 0; }
-/* The countdown lives here, and "resets in 5d 18h" is far longer than the window name it replaced:
-   without nowrap a wide reading wraps under the percentage and pushes the card past the panel. */
-.detail-primary > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(23, 33, 44, 0.58); font-size: 9px; font-weight: 680; }
-.detail-progress { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: rgba(39, 57, 76, 0.11); }
+.detail-primary > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(23, 33, 44, 0.58); font-size: 9px; font-weight: 680; line-height: 1.2; }
+.detail-progress { grid-area: progress; height: 4px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: rgba(39, 57, 76, 0.11); }
 .detail-progress i { display: block; height: 100%; border-radius: inherit; background: var(--provider-accent, #7d8894); }
 /* Severity is orthogonal to provider: a low bar reads as low whoever it belongs to. */
 .detail-progress--tier-caution i { background: #c8850f; }
 .detail-progress--tier-critical i { background: #b83725; }
-.detail-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 570; }
-.detail-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Per-model buckets (e.g. Fable), shown only when the API reports one.
-   Right-aligned and tucked close under the weekly figure in `.detail-meta`: these are weekly
-   buckets sharing the account weekly's exact reset instant, so they read as a continuation of it
-   rather than as an unrelated row. That shared reset is also why they carry no time of their own. */
-.detail-scoped { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 10px; margin-top: 3px; color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 570; }
+/* The right-hand column: the weekly figure is always the column's bottom line, so it shares one
+   baseline across every card; any per-model buckets (e.g. Fable) sit above it (`order: -1`, the
+   DOM keeps weekly first). Scoped buckets share the account weekly's exact reset instant, which
+   is why they carry no time of their own. The column bottom-aligns with the figure stack on the
+   left, and its lines ellipsise rather than narrow the figure's column. */
+.detail-footer { grid-area: footer; align-self: end; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-end; gap: 3px; text-align: right; }
+.detail-meta { max-width: 100%; min-width: 0; color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 570; line-height: 1.25; }
+.detail-meta span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Typography deliberately matches `.detail-meta`: a scoped bucket is peer information to the
-   weekly figure above it, so it must not out-shout it. Only the tier colours below break rank,
+   weekly figure below it, so it must not out-shout it. Only the tier colours below break rank,
    and only once the bucket is actually running low. */
+.detail-scoped { order: -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 10px; color: rgba(23, 33, 44, 0.52); font-size: 8px; font-weight: 570; line-height: 1.25; }
 .detail-scoped-value { font-variant-numeric: tabular-nums; }
 .detail-scoped-value--caution { color: #a3660d; }
 .detail-scoped-value--critical { color: #b83725; }
