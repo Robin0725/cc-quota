@@ -12,8 +12,10 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC Quota 0.5.3 highlights
+## CC Quota 0.5.5 highlights
 
+- Wears a monochrome app icon: two white interlocking C's on a near-black shell.
+- Freezes the floating widget's display while CC Quota itself is the frontmost app, so clicking the widget to expand the detail panel can no longer switch it to another provider mid-click.
 - Adds Kimi Code alongside Codex and Claude, reading the OAuth token its CLI stores locally and querying `api.kimi.com/coding/v1/usages`.
 - Treats providers as a registry rather than a fixed pair: a new one is a descriptor and an adapter, and the menu bar, menu, and detail panel pick it up without further changes.
 - Shows only the providers you are signed into, sized to however many that is, instead of rendering a fixed pair with empty capsules for the rest.

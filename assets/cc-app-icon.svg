@@ -10,14 +10,16 @@
   Deliberately flat: no fine outlines, no multi-layer gradients, no small ornament. Those survive
   only at 512pt and turn into noise everywhere else.
 
-  Colours track the tray palette in src-tauri/src/lib.rs closely enough to read as the same
-  product, brightened a little to hold up against the near-black shell.
+  Monochrome by request (2026-07-19): both C's are white on the near-black shell. The front C is
+  pure white and the back C sits a step dimmer, so the overlap still reads as depth without any
+  hue. The relief stroke between them is doing more work than before — don't thin it.
 
   The shell keeps a 52pt inset. Filling the full canvas would make CC sit visibly larger than its
   neighbours in the Dock.
 
-  Regenerate the PNG set after editing (render this file to a 1024x1024 PNG first):
-    npm run tauri -- icon <that PNG>
+  Regenerate the PNG set after editing (render this file to a 1024x1024 PNG first; note that a
+  literal double-hyphen cannot appear in this comment, XML forbids it):
+    npx tauri icon <that PNG>
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
@@ -29,23 +31,23 @@
       <stop offset=".24" stop-color="#fff" stop-opacity=".015"/>
       <stop offset=".46" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
-      <stop stop-color="#5C9BFF"/><stop offset="1" stop-color="#2563E0"/>
+    <linearGradient id="back-white" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#E9ECF2"/><stop offset="1" stop-color="#B9BFCC"/>
     </linearGradient>
-    <linearGradient id="orange" x1="0" y1="0" x2="0" y2="1">
-      <stop stop-color="#E08A5F"/><stop offset="1" stop-color="#B0512F"/>
+    <linearGradient id="front-white" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#DDE1E9"/>
     </linearGradient>
   </defs>
 
   <rect x="52" y="52" width="920" height="920" rx="228" fill="url(#bg)"/>
   <rect x="52" y="52" width="920" height="920" rx="228" fill="url(#rake)"/>
 
-  <!-- Codex -->
-  <path d="M 508.0 369.5 A 168 168 0 1 0 508.0 654.5" fill="none" stroke="url(#blue)" stroke-width="104" stroke-linecap="round"/>
-  <!-- Relief: cuts a shadow gap so the orange C sits in front instead of blending. -->
+  <!-- Codex (back) -->
+  <path d="M 508.0 369.5 A 168 168 0 1 0 508.0 654.5" fill="none" stroke="url(#back-white)" stroke-width="104" stroke-linecap="round"/>
+  <!-- Relief: cuts a shadow gap so the front C sits in front instead of blending. -->
   <path d="M 773.0 369.5 A 168 168 0 1 0 773.0 654.5" fill="none" stroke="#07080B" stroke-width="138" stroke-linecap="round"/>
-  <!-- Claude -->
-  <path d="M 773.0 369.5 A 168 168 0 1 0 773.0 654.5" fill="none" stroke="url(#orange)" stroke-width="104" stroke-linecap="round"/>
+  <!-- Claude (front) -->
+  <path d="M 773.0 369.5 A 168 168 0 1 0 773.0 654.5" fill="none" stroke="url(#front-white)" stroke-width="104" stroke-linecap="round"/>
 
   <rect x="53.5" y="53.5" width="917" height="917" rx="226.5" fill="none" stroke="#fff" stroke-opacity=".10" stroke-width="3"/>
 </svg>

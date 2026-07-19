@@ -1,6 +1,6 @@
 [package]
 name = "cc-quota"
-version = "0.5.4"
+version = "0.5.5"
 description = "A macOS menu bar monitor for Codex and Claude quota"
 authors = ["Robin0725 (Robin)", "Quota Float contributors"]
 license = "MIT"
