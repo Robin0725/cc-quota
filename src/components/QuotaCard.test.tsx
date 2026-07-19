@@ -163,6 +163,31 @@ describe("floating widget interactions", () => {
     }
   });
 
+  // The weekly window resets days away from the short one, so its own instant is not something a
+  // reader could work out from the countdown above it.
+  it("gives the weekly figure its own countdown", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-21T20:00:00Z")); // 2 days before the weekly 07-23T20:00Z reset
+    try {
+      const { container } = render(<QuotaDetails snapshots={[codex]} onDrag={() => undefined} onToggleExpanded={() => undefined} language="en" />);
+
+      expect(container.querySelector(".detail-meta span")?.textContent).toBe("Weekly 72% · resets in 2d 0h");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Printing the same percentage twice on one card is what this guards against: a weekly-only
+  // provider drives the big number with its weekly window, so the row below has nothing to add.
+  it("drops the weekly row when the weekly window already drives the card", () => {
+    const weeklyOnly: ProviderSnapshot = { ...codex, shortWindow: null };
+    const { container } = render(<QuotaDetails snapshots={[weeklyOnly]} onDrag={() => undefined} onToggleExpanded={() => undefined} language="en" />);
+
+    expect(container.querySelector(".detail-meta")).toBeNull();
+    expect(container.querySelector(".detail-footer")).toBeNull();
+    expect(container.textContent?.match(/72%/g) ?? []).toHaveLength(1);
+  });
+
   it("shows nothing extra when the provider reports no per-model bucket", () => {
     const { container } = render(<QuotaDetails snapshots={[codex]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
 

@@ -243,7 +243,11 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
         {snapshots.length > 0 ? snapshots.map((snapshot) => {
           const selected = preferredWindow(snapshot);
           const percent = selected ? clampPercent(selected.value.remainingPercent) : null;
-          const weeklyPercent = snapshot.weeklyWindow ? clampPercent(snapshot.weeklyWindow.remainingPercent) : null;
+          const weekly = snapshot.weeklyWindow;
+          const weeklyPercent = weekly ? clampPercent(weekly.remainingPercent) : null;
+          // A provider whose only window is the weekly one already has it above, countdown and
+          // all. Repeating it below would print the same percentage twice on one card.
+          const weeklyBelongsBelow = selected?.kind !== "weekly";
           const isStale = snapshot.status === "stale";
           return (
             <section className="detail-provider" style={accentStyle(snapshot, descriptors)} key={snapshot.provider}>
@@ -266,11 +270,22 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
                     <i style={{ width: `${percent}%` }} />
                   </div>
                   {/* Meta and scoped buckets share a wrapper so the tight three-card layout can fold
-                      them onto one line. They stay stacked at one and two providers. */}
+                      them onto one line. They stay stacked at one and two providers. The wrapper
+                      itself is dropped when both are absent, so its margin cannot pad the card out
+                      below a provider that has nothing left to say. */}
+                  {weeklyBelongsBelow || (snapshot.scopedWindows ?? []).length > 0 ? (
                   <div className="detail-footer">
-                    <div className="detail-meta">
-                      <span>{weeklyPercent === null ? labels.noWeekly : `${labels.weekly} ${weeklyPercent}%`}</span>
-                    </div>
+                    {weeklyBelongsBelow ? (
+                      <div className="detail-meta">
+                        {/* The weekly figure carries its own reset instant, which is days away from
+                            the short window's and cannot be inferred from it. */}
+                        <span>
+                          {weekly && weeklyPercent !== null
+                            ? `${labels.weekly} ${weeklyPercent}% · ${formatResetTime(weekly.resetsAt, new Date(), activeLanguage)}`
+                            : labels.noWeekly}
+                        </span>
+                      </div>
+                    ) : null}
                     {(snapshot.scopedWindows ?? []).length > 0 ? (
                       <div className="detail-scoped">
                         {(snapshot.scopedWindows ?? []).map((scoped) => (
@@ -284,6 +299,7 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
                       </div>
                     ) : null}
                   </div>
+                  ) : null}
                 </>
               ) : (
                 <p className="detail-unavailable">{snapshot.message ?? copy[activeLanguage].unavailableStatus}</p>
