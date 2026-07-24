@@ -18,6 +18,18 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
+## CC Quota 0.5.9 highlights
+
+- Restores the card's exact original 3px left-border accent rail and turns only that rail into the bottom-up weekly meter; no ring mask or extra outline is involved.
+- Gives the floating widget the same left-border rail while keeping its keyboard focus outline visually and semantically separate.
+- Keeps that weekly edge present whenever weekly data exists, even when the main figure has already fallen back to the weekly window.
+
+## CC Quota 0.5.7 highlights
+
+- Turns the detail card's decorative accent edge into a live weekly-quota rail, filled bottom-up to the exact remaining proportion.
+- Adds the same weekly rail to the collapsed floating widget; hovering temporarily swaps the bottom dots for the exact weekly percentage.
+- Omits the rail when the main figure already falls back to weekly quota, and never invents a second reading when weekly data is absent.
+
 ## CC Quota 0.5.6 highlights
 
 - Puts each window's reset countdown next to the figure it belongs to. The detail card carried a single countdown, silently attached to whichever window drove the big number, so the weekly figure sat next to a time that was not its own.
@@ -71,7 +83,7 @@ Open the menu to inspect reset times, refresh immediately, show or hide the floa
 
 ## Floating window
 
-The floating window is optional and off by default. Enabled, it shows one dominant percentage for whichever assistant you last worked with; clicking it opens the detail panel directly below, one card per signed-in provider, with the exact reset time and the weekly figure alongside the 5-hour one.
+The floating window is optional and off by default. Enabled, it shows one dominant percentage for whichever assistant you last worked with; whenever weekly data exists, the rounded edge at the left also shows its remainder and reveals the exact figure on hover. Clicking opens the detail panel directly below, one card per signed-in provider, with the exact reset time and the weekly figure alongside the 5-hour one.
 
 <table>
 <tr>
