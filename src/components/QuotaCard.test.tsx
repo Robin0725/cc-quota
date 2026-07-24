@@ -115,11 +115,29 @@ describe("floating widget interactions", () => {
     }
   });
 
+  it("turns the orb's rounded edge into a weekly reveal and keeps the exact hover readout", () => {
+    const { container } = render(<QuotaOrb snapshot={codex} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelector<HTMLElement>(".orb-weekly-edge i")?.style.getPropertyValue("--weekly-hidden")).toBe("28%");
+    expect(container.querySelector(".orb-weekly-readout")?.textContent).toBe("周 72%");
+    expect(screen.getByRole("button").getAttribute("aria-label")).toContain("周额度 72%");
+  });
+
   it("omits the countdown when only a weekly window is available", () => {
     const weeklyOnly: ProviderSnapshot = { ...codex, shortWindow: null };
     const { container } = render(<QuotaOrb snapshot={weeklyOnly} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />);
 
     expect(container.querySelector(".orb-dots")).toBeNull();
+    expect(container.querySelector(".orb-weekly-edge")).toBeTruthy();
+    expect(container.querySelector<HTMLElement>(".orb-weekly-edge i")?.style.getPropertyValue("--weekly-hidden")).toBe("28%");
+    expect(container.querySelector(".orb-weekly-readout")?.textContent).toBe("周 72%");
+  });
+
+  it("omits the weekly rail when no weekly window exists", () => {
+    const shortOnly: ProviderSnapshot = { ...codex, weeklyWindow: null };
+    const { container } = render(<QuotaOrb snapshot={shortOnly} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelector(".orb-weekly-edge")).toBeNull();
   });
 
   it("shows a per-model bucket under the provider it belongs to", () => {
@@ -185,7 +203,44 @@ describe("floating widget interactions", () => {
 
     expect(container.querySelector(".detail-meta")).toBeNull();
     expect(container.querySelector(".detail-footer")).toBeNull();
+    expect(container.querySelector(".detail-weekly-edge")?.getAttribute("aria-valuenow")).toBe("72");
     expect(container.textContent?.match(/72%/g) ?? []).toHaveLength(1);
+  });
+
+  it("turns each card's original rounded accent edge into a bottom-up weekly meter", () => {
+    const { container } = render(<QuotaDetails snapshots={[codex, claude]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+    const rails = [...container.querySelectorAll<HTMLElement>(".detail-weekly-edge")];
+
+    expect(rails.map((rail) => rail.getAttribute("aria-valuenow"))).toEqual(["72", "53"]);
+    expect(rails.map((rail) => rail.querySelector<HTMLElement>("i")?.style.getPropertyValue("--weekly-hidden"))).toEqual(["28%", "47%"]);
+  });
+
+  it("uses weekly severity on the secondary rail independently of the main figure", () => {
+    const weeklyCritical: ProviderSnapshot = { ...codex, weeklyWindow: { ...codex.weeklyWindow!, remainingPercent: 4 } };
+    const { container } = render(<QuotaDetails snapshots={[weeklyCritical]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelector(".detail-weekly-edge--tier-critical")).toBeTruthy();
+    expect(container.querySelector(".detail-progress--tier-healthy")).toBeTruthy();
+  });
+
+  it("keeps real 0% and 100% weekly readings distinct from missing data", () => {
+    const zero: ProviderSnapshot = { ...codex, weeklyWindow: { ...codex.weeklyWindow!, remainingPercent: 0 } };
+    const full: ProviderSnapshot = { ...claude, weeklyWindow: { ...claude.weeklyWindow!, remainingPercent: 100 } };
+    const { container } = render(<QuotaDetails snapshots={[zero, full]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+    const rails = [...container.querySelectorAll<HTMLElement>(".detail-weekly-edge")];
+
+    expect(rails.map((rail) => rail.getAttribute("aria-valuenow"))).toEqual(["0", "100"]);
+    expect(rails.map((rail) => rail.querySelector<HTMLElement>("i")?.style.getPropertyValue("--weekly-hidden"))).toEqual(["100%", "0%"]);
+    expect(rails[0].className).toContain("tier-critical");
+    expect(rails[1].className).toContain("tier-healthy");
+  });
+
+  it("keeps the weekly rail on retained stale data and labels the card stale", () => {
+    const stale: ProviderSnapshot = { ...codex, status: "stale" };
+    const { container } = render(<QuotaDetails snapshots={[stale]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+
+    expect(container.querySelector(".detail-weekly-edge")?.getAttribute("aria-valuenow")).toBe("72");
+    expect(container.querySelector(".detail-provider-heading > span")?.textContent).toContain("STALE");
   });
 
   it("shows nothing extra when the provider reports no per-model bucket", () => {
@@ -205,7 +260,7 @@ describe("floating widget interactions", () => {
     render(<QuotaDetails snapshots={snapshots} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
 
     for (const name of names) expect(screen.getByText(name)).toBeTruthy();
-    expect(screen.getAllByRole("meter").map((item) => item.getAttribute("aria-valuenow"))).toEqual(percents);
+    expect([...document.querySelectorAll(".detail-progress")].map((item) => item.getAttribute("aria-valuenow"))).toEqual(percents);
     // The panel has no chrome of its own: collapsing is the orb's job, or Escape.
     expect(screen.queryByRole("button")).toBeNull();
   });
@@ -301,6 +356,25 @@ describe("floating widget interactions", () => {
       expect(declarationsFor(".details-providers")).toMatch(/overflow-y:\s*auto/);
       // A count-keyed scroll class would be blind to how tall the cards actually are.
       expect(stylesheet).not.toContain("details-providers--scroll");
+    });
+
+    it("reveals the original 3px left-border rail from the bottom without scaling its corners", () => {
+      for (const selector of [".orb-weekly-edge i", ".detail-weekly-edge i"]) {
+        const edge = declarationsFor(selector);
+        expect(edge).toMatch(/border-left:\s*3px\s+solid/);
+        expect(edge).toMatch(/inset:\s*-1px/);
+        expect(edge).toMatch(/left:\s*-3px/);
+        expect(edge).toMatch(/clip-path:\s*inset\(var\(--weekly-hidden\)\s+0\s+0\s+0\s+round\s+3px\)/);
+        expect(edge).not.toMatch(/transform:\s*scale/);
+        expect(edge).not.toMatch(/transition:[^;]*(height|width|all)/);
+      }
+      for (const selector of [".orb-weekly-edge", ".detail-weekly-edge"]) {
+        const edge = declarationsFor(selector);
+        expect(edge).toMatch(/border-left:\s*3px\s+solid/);
+        expect(edge).toMatch(/border-radius:\s*inherit/);
+        expect(edge).not.toMatch(/mask-composite/);
+        expect(edge).not.toMatch(/calc\(100%\s*-\s*24px\)/);
+      }
     });
   });
 

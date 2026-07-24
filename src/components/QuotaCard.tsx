@@ -43,6 +43,16 @@ function accentStyle(snapshot: ProviderSnapshot, descriptors?: ProviderDescripto
   return accent ? ({ "--provider-accent": accent } as CSSProperties) : undefined;
 }
 
+/** The edge is the persistent visual form of the weekly total, even when weekly drives the figure. */
+function weeklyEdgePercent(snapshot: ProviderSnapshot): number | null {
+  return snapshot.weeklyWindow ? clampPercent(snapshot.weeklyWindow.remainingPercent) : null;
+}
+
+/** Reveal the original rounded edge bottom-up without scaling or deforming either corner. */
+function weeklyRevealStyle(percent: number): CSSProperties {
+  return { "--weekly-hidden": `${100 - percent}%` } as CSSProperties;
+}
+
 function useClickOrDrag(onActivate: () => void, onDrag: () => void | Promise<void>) {
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
@@ -117,6 +127,7 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
   const selected = snapshot ? preferredWindow(snapshot) : null;
   const percent = selected ? clampPercent(selected.value.remainingPercent) : null;
   const available = snapshot !== null && selected !== null && percent !== null;
+  const weeklyPercent = snapshot ? weeklyEdgePercent(snapshot) : null;
   // Only the 5-hour window gets a countdown, matching `snapshot_time_hours` in the tray renderer:
   // a weekly window would light every dot for days on end and tell the user nothing.
   const resetHours = selected?.kind === "short" ? hoursUntilReset(selected.value) : null;
@@ -147,8 +158,9 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
   };
 
   const t = copy[activeLanguage];
+  const weeklyLabel = activeLanguage === "en" ? "weekly" : "周额度";
   const ariaLabel = available
-    ? `${snapshot.displayName} ${t.availableLabel(percent, selected.kind)}${t.clauseSeparator}${t.expandDetails}`
+    ? `${snapshot.displayName} ${t.availableLabel(percent, selected.kind)}${weeklyPercent !== null && selected.kind !== "weekly" ? `${t.clauseSeparator}${weeklyLabel} ${weeklyPercent}%` : ""}${t.clauseSeparator}${t.expandDetails}`
     : `${t.unavailableStatus}${t.clauseSeparator}${t.expandDetails}`;
   const tier = quotaTier(percent);
 
@@ -168,16 +180,24 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
       // what toggles the panel, and Escape is handled globally while expanded.
       data-cc-focus-target="true"
     >
+      {weeklyPercent !== null ? (
+        <span className={`orb-weekly-edge orb-weekly-edge--tier-${quotaTier(weeklyPercent)}`} aria-hidden="true">
+          <i style={weeklyRevealStyle(weeklyPercent)} />
+        </span>
+      ) : null}
       {available ? (
         <section className="orb-metric" role="progressbar" aria-label={ariaLabel} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
           <span className="orb-source">{providerAbbreviation(snapshot, descriptors)}<i aria-hidden="true" />{selected.kind === "weekly" ? "W" : "5H"}</span>
           <span className="orb-value">{percent}<small>%</small></span>
           {resetHours !== null ? (
-            <span className="orb-dots" aria-hidden="true">
+            <span className={`orb-dots${weeklyPercent !== null ? " orb-dots--with-weekly" : ""}`} aria-hidden="true">
               {Array.from({ length: RESET_DOT_COUNT }, (_, index) => (
                 <i key={index} className={index < resetHours ? "is-lit" : undefined} />
               ))}
             </span>
+          ) : null}
+          {weeklyPercent !== null ? (
+            <span className="orb-weekly-readout" aria-hidden="true">{activeLanguage === "en" ? "W" : "周"} {weeklyPercent}%</span>
           ) : null}
         </section>
       ) : (
@@ -248,9 +268,22 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
           // A provider whose only window is the weekly one already has it above, countdown and
           // all. Repeating it below would print the same percentage twice on one card.
           const weeklyBelongsBelow = selected?.kind !== "weekly";
+          const weeklyEdgeValue = weeklyEdgePercent(snapshot);
           const isStale = snapshot.status === "stale";
           return (
             <section className="detail-provider" style={accentStyle(snapshot, descriptors)} key={snapshot.provider}>
+              {weeklyEdgeValue !== null ? (
+                <span
+                  className={`detail-weekly-edge detail-weekly-edge--tier-${quotaTier(weeklyEdgeValue)}`}
+                  role="meter"
+                  aria-label={`${snapshot.displayName} ${labels.weekly}`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={weeklyEdgeValue}
+                >
+                  <i style={weeklyRevealStyle(weeklyEdgeValue)} />
+                </span>
+              ) : null}
               <div className="detail-provider-heading">
                 <div><i aria-hidden="true" /><strong>{snapshot.displayName}</strong></div>
                 <span>{snapshot.plan ?? copy[activeLanguage].accountFallback}{isStale ? " · STALE" : ""}</span>

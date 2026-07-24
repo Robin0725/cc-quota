@@ -77,10 +77,54 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .orb-value { display: flex; align-items: flex-end; margin-top: 8px; font-size: 28px; font-weight: 560; letter-spacing: -0.065em; line-height: 1; font-variant-numeric: tabular-nums; }
 .orb-value small { margin: 0 0 3px 2px; font-size: 10px; font-weight: 760; letter-spacing: 0; }
 
+/* The orb borrows the detail card's original accent-rail language: a 3px left border, not an
+   outline ring. The muted full-height border is the track; the coloured copy reveals bottom-up. */
+.orb-weekly-edge {
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-left: 3px solid rgba(23, 33, 44, 0.1);
+  border-left-color: color-mix(in srgb, var(--provider-accent, #7d8894) 18%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.orb-weekly-edge i {
+  position: absolute;
+  inset: -1px;
+  /* Absolute children use the track's padding box; compensate for its 3px left border so the
+     coloured rail and muted rail occupy the exact same border pixels. */
+  left: -3px;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--provider-accent, #7d8894);
+  border-radius: inherit;
+  clip-path: inset(var(--weekly-hidden) 0 0 0 round 3px);
+  transition: clip-path 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.orb-weekly-edge--tier-caution i { border-left-color: #c8850f; }
+.orb-weekly-edge--tier-critical i { border-left-color: #b83725; }
+
 /* Hours left in the 5-hour window, mirroring the tray capsule's dot row. */
 .orb-dots { position: absolute; bottom: 11px; left: 50%; display: flex; gap: 4px; transform: translateX(-50%); }
 .orb-dots i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.22; }
 .orb-dots i.is-lit { opacity: 0.78; }
+.orb-weekly-readout {
+  position: absolute;
+  bottom: 9px;
+  left: 50%;
+  color: rgba(23, 33, 44, 0.62);
+  font-size: 7px;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 2px);
+  transition: opacity 160ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .quota-orb:hover .orb-dots--with-weekly { opacity: 0; }
+  .quota-orb:hover .orb-weekly-readout { opacity: 1; transform: translate(-50%, 0); }
+}
 
 .orb-empty { display: grid; justify-items: center; gap: 6px; }
 .orb-empty span { font-size: 9px; font-weight: 760; letter-spacing: 0.14em; }
@@ -155,6 +199,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
    its content. No heights are set anywhere, so the `min-content` row floor above still decides
    when the panel scrolls. */
 .detail-provider {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, auto);
   grid-template-areas:
@@ -165,14 +210,36 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
   align-content: space-between;
   padding: 11px 13px 10px 14px;
   border: 1px solid rgba(255, 255, 255, 0.68);
-  border-left: 3px solid var(--provider-accent, #7d8894);
   border-radius: 20px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
 }
-/* Provider identity moves from a full tint wash to a left rail over a much fainter tint: the card
-   reads as one neutral surface and the accent does the marking. Every hue is still mixed from
-   `--provider-accent`, which the component sets inline from the descriptor — nothing here names a
-   provider's colour. The plain layer stays first for WebKit builds older than `color-mix`. */
+/* This is the original accent rail's exact geometry: a 3px `border-left` sharing the card's 20px
+   radius. Its muted copy stays whole while the coloured copy reveals bottom-up. */
+.detail-weekly-edge {
+  position: absolute;
+  inset: -1px;
+  border: 1px solid transparent;
+  border-left: 3px solid rgba(23, 33, 44, 0.1);
+  border-left-color: color-mix(in srgb, var(--provider-accent, #7d8894) 18%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.detail-weekly-edge i {
+  position: absolute;
+  inset: -1px;
+  /* Keep the fill on the same original border pixels as the track (see the orb rule above). */
+  left: -3px;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--provider-accent, #7d8894);
+  border-radius: inherit;
+  clip-path: inset(var(--weekly-hidden) 0 0 0 round 3px);
+  transition: clip-path 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.detail-weekly-edge--tier-caution i { border-left-color: #c8850f; }
+.detail-weekly-edge--tier-critical i { border-left-color: #b83725; }
+/* Provider identity moves from a full tint wash to a faint neutral surface plus the live rail and
+   heading dot. Every hue is still mixed from `--provider-accent`, which the component sets inline
+   from the descriptor — nothing here names a provider's colour. */
 .detail-provider { background: rgba(252, 253, 255, 0.9); }
 .detail-provider { background: linear-gradient(145deg, color-mix(in srgb, var(--provider-accent, #7d8894) 7%, rgba(255, 255, 255, 0.94)), color-mix(in srgb, var(--provider-accent, #7d8894) 14%, rgba(255, 255, 255, 0.88))); }
 /* Three providers, scoped buckets included, fit the 320×320 panel without scrolling.
@@ -264,5 +331,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 .design-controls h1 { margin: 0 0 24px; font-size: 32px; font-weight: 630; letter-spacing: -0.04em; }
 .design-controls p:not(.design-kicker) { color: #697381; font-size: 13px; line-height: 1.7; }
 
-@media (prefers-reduced-motion: reduce) { .quota-orb { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .quota-orb, .orb-weekly-edge i, .detail-weekly-edge i, .orb-weekly-readout { transition: none; }
+}
 @media (max-width: 760px) { .design-workbench { grid-template-columns: 1fr; } .design-stage { min-height: 520px; } .design-controls { min-height: auto; border-left: 0; border-top: 1px solid #dfe3e8; } }
