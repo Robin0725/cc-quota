@@ -246,14 +246,19 @@ export async function setWidgetExpanded(expanded: boolean): Promise<WidgetPlacem
 }
 
 /**
- * The provider the user is working with, decided in Rust by which CLI last wrote a session file.
- * The call is a memory read on the backend — the watching is event-driven — so polling it costs
- * nothing on the filesystem.
+ * Both provider layers from one Rust observation: `activeProvider` includes activity/default
+ * fallback for display, while `focusedProvider` is only a direct app/title match. Recovery timers
+ * use the latter so leaving and returning to the same assistant resets their bounded attempt set.
  */
-export async function getActiveProvider(): Promise<ProviderId | null> {
-  if (!isTauri()) return null;
+export type ProviderFocusState = {
+  activeProvider: ProviderId | null;
+  focusedProvider: ProviderId | null;
+};
+
+export async function getProviderFocusState(): Promise<ProviderFocusState> {
+  if (!isTauri()) return { activeProvider: null, focusedProvider: null };
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<ProviderId | null>("get_active_provider");
+  return invoke<ProviderFocusState>("get_provider_focus_state");
 }
 
 export async function listenDesktopEvents(handlers: {

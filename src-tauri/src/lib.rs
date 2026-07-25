@@ -288,21 +288,38 @@ fn rounded_percent(window: &UsageWindow) -> u8 {
 /// Clicking the widget itself is none of these: that click steals the very focus tier 1 was
 /// reading, so the answer is whatever was already showing, frozen until the user points at
 /// something else.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderFocusState {
+    active_provider: Option<String>,
+    focused_provider: Option<String>,
+}
+
 #[tauri::command]
-fn get_active_provider() -> Option<String> {
+fn get_provider_focus_state() -> ProviderFocusState {
     static SHOWN: Mutex<Option<String>> = Mutex::new(None);
     let mut shown = SHOWN
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    resolve_active_provider(
-        focused_provider(),
+    let (focus, fallback_provider) = observe_provider_focus();
+    let raw_focus = match focus {
+        Focus::Provider(provider) => Some(provider.to_owned()),
+        _ => None,
+    };
+    let active_provider = resolve_active_provider(
+        focus,
         providers::activity::active_provider(),
-        frontmost_provider,
+        || fallback_provider,
         &mut shown,
-    )
+    );
+    ProviderFocusState {
+        active_provider,
+        focused_provider: raw_focus,
+    }
 }
 
 /// What the frontmost application says about where the user is pointing.
+#[derive(Clone, Copy)]
 enum Focus {
     /// CC's own widget: the user is interacting with the display, not choosing an assistant.
     Widget,
@@ -344,21 +361,27 @@ fn resolve_active_provider(
 /// The window title is read only when the app's own identity names no provider, only with the
 /// Accessibility permission, and is discarded right after the in-memory hint match: titles carry
 /// project and document names, so they are never logged, stored, or returned (see `focus`).
-fn focused_provider() -> Focus {
+fn observe_provider_focus() -> (Focus, Option<String>) {
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::NSWorkspace;
 
         let Some(application) = NSWorkspace::sharedWorkspace().frontmostApplication() else {
-            return Focus::Unknown;
+            return (Focus::Unknown, None);
         };
         let bundle_id = application
             .bundleIdentifier()
             .map(|value| value.to_string());
-        if bundle_id.as_deref() == Some(APP_BUNDLE_ID) {
-            return Focus::Widget;
-        }
         let name = application.localizedName().map(|value| value.to_string());
+        let fallback_provider = providers::classify_focus(
+            bundle_id.as_deref(),
+            name.as_deref(),
+            providers::default_focus_provider(),
+        )
+        .map(str::to_owned);
+        if bundle_id.as_deref() == Some(APP_BUNDLE_ID) {
+            return (Focus::Widget, fallback_provider);
+        }
         let named = providers::hinted_provider(&[
             bundle_id.as_deref().unwrap_or(""),
             name.as_deref().unwrap_or(""),
@@ -369,41 +392,19 @@ fn focused_provider() -> Focus {
         });
         // A provider the user is signed out of has nothing to show; skipping it here lets the
         // prompt-history tier pick someone who does.
-        match named.filter(|named| {
+        let focus = match named.filter(|named| {
             providers::configured()
                 .iter()
                 .any(|adapter| adapter.descriptor().id == *named)
         }) {
             Some(provider) => Focus::Provider(provider),
             None => Focus::Unknown,
-        }
+        };
+        (focus, fallback_provider)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Focus::Unknown
-    }
-}
-
-fn frontmost_provider() -> Option<String> {
-    #[cfg(target_os = "macos")]
-    {
-        use objc2_app_kit::NSWorkspace;
-
-        let application = NSWorkspace::sharedWorkspace().frontmostApplication()?;
-        let bundle_id = application
-            .bundleIdentifier()
-            .map(|value| value.to_string());
-        let name = application.localizedName().map(|value| value.to_string());
-        providers::classify_focus(
-            bundle_id.as_deref(),
-            name.as_deref(),
-            providers::default_focus_provider(),
-        )
-        .map(str::to_owned)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        None
+        (Focus::Unknown, None)
     }
 }
 
@@ -1805,7 +1806,7 @@ pub fn run() {
             set_widget_locked,
             set_widget_always_on_top,
             set_widget_visible,
-            get_active_provider,
+            get_provider_focus_state,
             get_provider_descriptors
         ])
         .on_window_event(|window, event| {
@@ -1831,7 +1832,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod active_provider_tests {
-    use super::{resolve_active_provider, Focus};
+    use super::{resolve_active_provider, Focus, ProviderFocusState};
     use std::cell::Cell;
 
     /// Clicking a window is the user pointing at an assistant; it outranks who they last typed
@@ -1918,6 +1919,17 @@ mod active_provider_tests {
         let resolved = resolve_active_provider(Focus::Widget, Some("alpha"), || None, &mut shown);
         assert_eq!(resolved.as_deref(), Some("alpha"));
         assert_eq!(shown.as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn focus_state_keeps_raw_focus_separate_from_the_display_fallback() {
+        let value = serde_json::to_value(ProviderFocusState {
+            active_provider: Some("kimicode".to_owned()),
+            focused_provider: None,
+        })
+        .expect("focus state serializes");
+        assert_eq!(value["activeProvider"], "kimicode");
+        assert!(value["focusedProvider"].is_null());
     }
 }
 
