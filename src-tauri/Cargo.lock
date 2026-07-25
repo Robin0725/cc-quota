@@ -439,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "cc-quota"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

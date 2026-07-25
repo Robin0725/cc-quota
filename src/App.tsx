@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QuotaDetails, QuotaOrb, type ProviderDescriptorMap } from "./components/QuotaCard";
-import { fetchProviderDescriptors, fetchSnapshots, getActiveProvider, getPreferences, listenDesktopEvents, setWidgetExpanded, startDragging, type WidgetPlacement } from "./lib/bridge";
+import { fetchProviderDescriptors, fetchSnapshots, getPreferences, getProviderFocusState, listenDesktopEvents, setWidgetExpanded, startDragging, type WidgetPlacement } from "./lib/bridge";
 import { displayableSnapshots, needsFastRefresh } from "./lib/format";
 import { copy, normalizeLanguage } from "./lib/i18n";
 import { mergeSnapshots } from "./lib/snapshots";
-import { focusRefreshCooldownDelay, focusRefreshDelays } from "./lib/active-provider";
+import { focusRefreshCooldownDelay, focusRefreshDelays, focusedKimiRecoveryDelay } from "./lib/active-provider";
 import type { ProviderDescriptorDto, ProviderId, ProviderSnapshot, WidgetPreferences } from "./types";
 
 const DEFAULT_PREFS: WidgetPreferences = { locked: false, alwaysOnTop: true, widgetVisible: false, pinnedProvider: null, autoRotateSeconds: 12, language: "zh-CN" };
@@ -26,6 +26,7 @@ export default function App() {
   const [descriptors, setDescriptors] = useState<ProviderDescriptorDto[]>([]);
   const [preferences, setPreferences] = useState(DEFAULT_PREFS);
   const [activeProvider, setActiveProvider] = useState<ProviderId | null>(null);
+  const [focusedProvider, setFocusedProvider] = useState<ProviderId | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [expandedPlacement, setExpandedPlacement] = useState<WidgetPlacement>({ vertical: "below", horizontal: "right" });
   const expansionBusy = useRef(false);
@@ -33,6 +34,7 @@ export default function App() {
   const activeProviderInitialized = useRef(false);
   const activeProviderRefreshTimers = useRef<number[]>([]);
   const lastFocusRefreshAt = useRef(0);
+  const focusedKimiRecoveryAttempt = useRef(0);
   const failures = useRef(0);
   const language = normalizeLanguage(preferences.language);
   // `refresh` is stable (empty deps), so it reads the active copy through a ref instead of
@@ -73,6 +75,26 @@ export default function App() {
   }, [refresh]);
 
   useEffect(() => {
+    const status = snapshots.find((item) => item.provider === focusedProvider)?.status ?? null;
+    const delay = focusedKimiRecoveryDelay(
+      focusedProvider,
+      status,
+      focusedKimiRecoveryAttempt.current,
+    );
+    if (delay === null) {
+      if (focusedProvider !== "kimicode" || status === "ok" || status === "signed_out") {
+        focusedKimiRecoveryAttempt.current = 0;
+      }
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      focusedKimiRecoveryAttempt.current += 1;
+      void refresh(true);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [focusedProvider, refresh, snapshots]);
+
+  useEffect(() => {
     let cancelled = false;
     let pollTimer: number | undefined;
     // The backend decides this from filesystem events, so each call only reads a value it already
@@ -80,7 +102,8 @@ export default function App() {
     // otherwise make every slow response look obsolete and starve focus initialization forever.
     const syncActiveProvider = async () => {
       try {
-        const provider = await getActiveProvider();
+        const focus = await getProviderFocusState();
+        const provider = focus.activeProvider;
         if (!cancelled) {
           const previous = activeProviderRef.current;
           const initialized = activeProviderInitialized.current;
@@ -91,6 +114,7 @@ export default function App() {
           );
           activeProviderInitialized.current = true;
           activeProviderRef.current = provider;
+          setFocusedProvider(focus.focusedProvider);
           if (provider) setActiveProvider(provider);
           // Kimi renews its short-lived token when its CLI wakes. Without a forced quota refresh,
           // focus attribution changes immediately but an unavailable cached snapshot leaves the
