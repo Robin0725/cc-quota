@@ -18,8 +18,9 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC Quota 0.5.10 highlights
+## CC Quota 0.5.11 highlights
 
+- Forces a fresh quota read when focus moves between providers, so a newly awakened Kimi CLI can switch the orb immediately after renewing its short-lived token.
 - Keeps every weekly rail in its provider identity colour instead of replacing Claude or Kimi with the same caution/critical colour.
 - Repairs stale ad-hoc Accessibility grants automatically on the first untrusted launch of each exact build, scoped only to CC Quota and never granting the permission without the user's macOS approval.
 - Seeds existing Codex, Claude, and Kimi prompt activity at startup, so restarting the app does not temporarily forget which terminal was used most recently.

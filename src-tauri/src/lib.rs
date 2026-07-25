@@ -51,8 +51,59 @@ struct AppState {
     client: reqwest::Client,
     preferences: Mutex<WidgetPreferences>,
     preferences_path: PathBuf,
-    fetch_lock: tokio::sync::Mutex<()>,
+    fetch_gate: FetchGate,
     snapshot_cache: Mutex<Option<(Instant, Vec<ProviderSnapshot>)>>,
+}
+
+/// Serialises provider reads without letting a burst of forced reads grow an unbounded queue.
+/// One trailing forced caller may wait behind the active round. As soon as that caller owns the
+/// lock it is no longer a waiter, so the next late-arriving forced read may reserve the following
+/// round instead of being mistaken for a duplicate and dropped.
+struct FetchGate {
+    lock: tokio::sync::Mutex<()>,
+    force_waiter: AtomicBool,
+}
+
+struct ForceWaiterClaim<'a> {
+    flag: &'a AtomicBool,
+}
+
+impl<'a> ForceWaiterClaim<'a> {
+    fn try_new(flag: &'a AtomicBool) -> Option<Self> {
+        flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| Self { flag })
+    }
+}
+
+impl Drop for ForceWaiterClaim<'_> {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Release);
+    }
+}
+
+impl FetchGate {
+    fn new() -> Self {
+        Self {
+            lock: tokio::sync::Mutex::new(()),
+            force_waiter: AtomicBool::new(false),
+        }
+    }
+
+    async fn acquire(&self, force: bool) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        match self.lock.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(_) if !force => None,
+            Err(_) => {
+                let claim = ForceWaiterClaim::try_new(&self.force_waiter)?;
+                let guard = self.lock.lock().await;
+                // Clear at acquisition, not after the refresh. If another forced read arrives
+                // during this round it may become the single waiter for the next round.
+                drop(claim);
+                Some(guard)
+            }
+        }
+    }
 }
 
 fn load_preferences(path: &PathBuf) -> WidgetPreferences {
@@ -1293,16 +1344,21 @@ async fn fetch_snapshots_for_app(app: &AppHandle, force: bool) -> Vec<ProviderSn
         }
     }
 
-    let _guard = match state.fetch_lock.try_lock() {
-        Ok(guard) => guard,
-        Err(_) => {
-            if let Ok(cache) = state.snapshot_cache.lock() {
-                if let Some((_, values)) = &*cache {
-                    return values.clone();
-                }
+    let cached_or_busy = || {
+        if let Ok(cache) = state.snapshot_cache.lock() {
+            if let Some((_, values)) = &*cache {
+                return values.clone();
             }
-            return unavailable_snapshots("Quota refresh is already running.");
         }
+        unavailable_snapshots("Quota refresh is already running.")
+    };
+
+    // A forced read is a user-driven freshness guarantee (focus changed, hover, or expand). Keep
+    // at most one trailing waiter behind the active round: later force requests coalesce into it
+    // and receive the cache now, then the waiter's `snapshots-changed` event delivers the fresh
+    // result. Ordinary background reads remain non-blocking on contention.
+    let Some(guard) = state.fetch_gate.acquire(force).await else {
+        return cached_or_busy();
     };
 
     if !force {
@@ -1333,6 +1389,7 @@ async fn fetch_snapshots_for_app(app: &AppHandle, force: bool) -> Vec<ProviderSn
     }
     let _ = update_tray_ui(app, &values);
     let _ = app.emit_to("widget", "snapshots-changed", values.clone());
+    drop(guard);
     values
 }
 
@@ -1692,7 +1749,7 @@ pub fn run() {
                 client,
                 preferences: Mutex::new(preferences.clone()),
                 preferences_path,
-                fetch_lock: tokio::sync::Mutex::new(()),
+                fetch_gate: FetchGate::new(),
                 snapshot_cache: Mutex::new(None),
             });
 
@@ -1861,6 +1918,74 @@ mod active_provider_tests {
         let resolved = resolve_active_provider(Focus::Widget, Some("alpha"), || None, &mut shown);
         assert_eq!(resolved.as_deref(), Some("alpha"));
         assert_eq!(shown.as_deref(), Some("alpha"));
+    }
+}
+
+#[cfg(test)]
+mod fetch_gate_tests {
+    use super::FetchGate;
+    use std::{sync::atomic::Ordering, time::Duration};
+    use tokio::sync::Notify;
+
+    /// Regression for the Kimi wake-up retry: once trailing round B owns the lock, forced read C
+    /// must be allowed to reserve the next round. Keeping B's waiter flag until its network fetch
+    /// finished used to make C return stale cache instead.
+    #[tokio::test]
+    async fn a_force_during_the_trailing_round_becomes_the_next_waiter() {
+        let gate = FetchGate::new();
+        let active = gate.acquire(true).await.expect("first round acquires");
+        let b_acquired = Notify::new();
+        let release_b = Notify::new();
+
+        let trailing_round = async {
+            let guard = gate.acquire(true).await.expect("B reserves trailing round");
+            assert!(
+                !gate.force_waiter.load(Ordering::Acquire),
+                "B must stop counting as a waiter once it owns the lock"
+            );
+            b_acquired.notify_one();
+            release_b.notified().await;
+            drop(guard);
+        };
+
+        let controller = async {
+            while !gate.force_waiter.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+            drop(active);
+            b_acquired.notified().await;
+
+            let mut next_round = Box::pin(gate.acquire(true));
+            tokio::select! {
+                result = &mut next_round => panic!("C acquired while B was active: {result:?}"),
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+            assert!(
+                gate.force_waiter.load(Ordering::Acquire),
+                "C must reserve the round after B"
+            );
+            release_b.notify_one();
+            let guard = next_round.await.expect("C acquires after B");
+            assert!(!gate.force_waiter.load(Ordering::Acquire));
+            drop(guard);
+        };
+
+        tokio::join!(trailing_round, controller);
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_waiter_releases_its_claim() {
+        let gate = FetchGate::new();
+        let active = gate.acquire(true).await.expect("first round acquires");
+        let mut waiter = Box::pin(gate.acquire(true));
+        tokio::select! {
+            result = &mut waiter => panic!("waiter acquired too early: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+        assert!(gate.force_waiter.load(Ordering::Acquire));
+        drop(waiter);
+        assert!(!gate.force_waiter.load(Ordering::Acquire));
+        drop(active);
     }
 }
 

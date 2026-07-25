@@ -4,6 +4,7 @@ import { fetchProviderDescriptors, fetchSnapshots, getActiveProvider, getPrefere
 import { displayableSnapshots, needsFastRefresh } from "./lib/format";
 import { copy, normalizeLanguage } from "./lib/i18n";
 import { mergeSnapshots } from "./lib/snapshots";
+import { focusRefreshCooldownDelay, focusRefreshDelays } from "./lib/active-provider";
 import type { ProviderDescriptorDto, ProviderId, ProviderSnapshot, WidgetPreferences } from "./types";
 
 const DEFAULT_PREFS: WidgetPreferences = { locked: false, alwaysOnTop: true, widgetVisible: false, pinnedProvider: null, autoRotateSeconds: 12, language: "zh-CN" };
@@ -28,6 +29,10 @@ export default function App() {
   const [expanded, setExpanded] = useState(false);
   const [expandedPlacement, setExpandedPlacement] = useState<WidgetPlacement>({ vertical: "below", horizontal: "right" });
   const expansionBusy = useRef(false);
+  const activeProviderRef = useRef<ProviderId | null>(null);
+  const activeProviderInitialized = useRef(false);
+  const activeProviderRefreshTimers = useRef<number[]>([]);
+  const lastFocusRefreshAt = useRef(0);
   const failures = useRef(0);
   const language = normalizeLanguage(preferences.language);
   // `refresh` is stable (empty deps), so it reads the active copy through a ref instead of
@@ -69,20 +74,62 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let pollTimer: number | undefined;
     // The backend decides this from filesystem events, so each call only reads a value it already
-    // holds. Polling stays here because it needs no IPC subscription and costs nothing either side.
+    // holds. Start the next poll only after this one finishes: overlapping 750ms requests can
+    // otherwise make every slow response look obsolete and starve focus initialization forever.
     const syncActiveProvider = async () => {
       try {
         const provider = await getActiveProvider();
-        if (!cancelled && provider) setActiveProvider(provider);
+        if (!cancelled) {
+          const previous = activeProviderRef.current;
+          const initialized = activeProviderInitialized.current;
+          const delays = focusRefreshDelays(
+            activeProviderRef.current,
+            provider,
+            initialized,
+          );
+          activeProviderInitialized.current = true;
+          activeProviderRef.current = provider;
+          if (provider) setActiveProvider(provider);
+          // Kimi renews its short-lived token when its CLI wakes. Without a forced quota refresh,
+          // focus attribution changes immediately but an unavailable cached snapshot leaves the
+          // orb showing the previous provider until the ordinary five-minute poll. A short,
+          // bounded retry covers the token write landing just after the focus observation.
+          if (initialized && previous !== provider) {
+            activeProviderRefreshTimers.current.forEach(window.clearTimeout);
+            activeProviderRefreshTimers.current = [];
+            const scheduleRefresh = (delay: number) => {
+              const timer = window.setTimeout(() => {
+                activeProviderRefreshTimers.current = activeProviderRefreshTimers.current.filter((id) => id !== timer);
+                if (cancelled || activeProviderRef.current !== provider) return;
+                const cooldown = focusRefreshCooldownDelay(Date.now(), lastFocusRefreshAt.current);
+                if (cooldown > 0) {
+                  scheduleRefresh(cooldown);
+                  return;
+                }
+                lastFocusRefreshAt.current = Date.now();
+                void refresh(true);
+              }, delay);
+              activeProviderRefreshTimers.current.push(timer);
+            };
+            delays.forEach(scheduleRefresh);
+          }
+        }
       } catch {
         // Keep the last meaningful provider when the detection is unavailable.
+      } finally {
+        if (!cancelled) pollTimer = window.setTimeout(() => void syncActiveProvider(), 750);
       }
     };
     void syncActiveProvider();
-    const id = window.setInterval(() => void syncActiveProvider(), 750);
-    return () => { cancelled = true; window.clearInterval(id); };
-  }, []);
+    return () => {
+      cancelled = true;
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+      activeProviderRefreshTimers.current.forEach(window.clearTimeout);
+      activeProviderRefreshTimers.current = [];
+    };
+  }, [refresh]);
 
   useEffect(() => {
     let cancelled = false;
