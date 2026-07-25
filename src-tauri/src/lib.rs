@@ -5,9 +5,12 @@ mod strings;
 
 use std::{
     fs,
-    io::Write,
-    path::PathBuf,
-    sync::{Mutex, OnceLock},
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex, OnceLock,
+    },
     time::{Duration, Instant},
 };
 
@@ -38,6 +41,11 @@ const TRAY_CAPSULE_WARN_COUNT: usize = 4;
 const TRAY_TIME_DOT_COUNT: u8 = 5;
 const COMPACT_WIDGET_WIDTH: f64 = 100.0;
 const COMPACT_WIDGET_HEIGHT: f64 = 100.0;
+pub(crate) const APP_BUNDLE_ID: &str = "app.ccquota.desktop";
+const ACCESSIBILITY_RECOVERY_MARKER: &str = "accessibility-recovery-version";
+const ACCESSIBILITY_RECOVERY_POLL: Duration = Duration::from_secs(1);
+const ACCESSIBILITY_RECOVERY_POLLS: usize = 15 * 60;
+static ACCESSIBILITY_RECOVERY_RUNNING: AtomicBool = AtomicBool::new(false);
 
 struct AppState {
     client: reqwest::Client,
@@ -87,6 +95,117 @@ fn persist_preferences(path: &PathBuf, value: &WidgetPreferences) -> Result<(), 
         return Err(format!("failed to commit settings: {error}"));
     }
     Ok(())
+}
+
+fn current_build_identity() -> String {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let digest = std::env::current_exe()
+        .ok()
+        .and_then(|path| fs::File::open(path).ok())
+        .and_then(|mut file| {
+            let mut hash = FNV_OFFSET;
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                let count = file.read(&mut buffer).ok()?;
+                if count == 0 {
+                    return Some(hash);
+                }
+                for byte in &buffer[..count] {
+                    hash ^= u64::from(*byte);
+                    hash = hash.wrapping_mul(FNV_PRIME);
+                }
+            }
+        });
+    match digest {
+        Some(value) => format!("{}:{value:016x}", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_owned(),
+    }
+}
+
+fn write_accessibility_recovery_marker(path: &Path, value: &str) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return false;
+    }
+    let temporary = path.with_extension("tmp");
+    if fs::write(&temporary, value).is_err() {
+        return false;
+    }
+    if fs::rename(&temporary, path).is_err() {
+        let _ = fs::remove_file(&temporary);
+        return false;
+    }
+    true
+}
+
+/// Decides whether this exact build gets one automatic recovery attempt.
+///
+/// A user who declines the system prompt must not be interrupted on every launch. Conversely, a
+/// valid grant is never reset merely because the build changed. The executable fingerprint also
+/// distinguishes two ad-hoc-signed rebuilds that accidentally share a marketing version.
+fn accessibility_recovery_needed(path: &Path, identity: &str, trusted: bool) -> bool {
+    if trusted {
+        let _ = write_accessibility_recovery_marker(path, &format!("trusted:{identity}"));
+        return false;
+    }
+    let saved = fs::read_to_string(path).ok();
+    let saved = saved.as_deref().map(str::trim);
+    if saved.is_some_and(|value| {
+        value == format!("trusted:{identity}")
+            || value == format!("attempted:{identity}")
+            || value == format!("failed:{identity}")
+    }) {
+        return false;
+    }
+    true
+}
+
+/// Replaces a stale, build-bound Accessibility row with one for the binary that is actually
+/// running, then waits for the user's one required system action. macOS does not permit an app to
+/// grant this permission to itself; once the user enables it, Tauri performs a clean restart so
+/// the new trust state is applied consistently.
+fn start_accessibility_recovery(app: AppHandle, marker_path: PathBuf, identity: String) {
+    if ACCESSIBILITY_RECOVERY_RUNNING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    std::thread::spawn(move || {
+        // The user may have granted access between the startup check and this worker running.
+        // Never erase a healthy decision on the strength of a stale observation.
+        if focus::trusted() {
+            let _ =
+                write_accessibility_recovery_marker(&marker_path, &format!("trusted:{identity}"));
+            ACCESSIBILITY_RECOVERY_RUNNING.store(false, Ordering::Release);
+            return;
+        }
+        if let Err(error) = focus::reset_trust() {
+            eprintln!("Accessibility recovery could not clear the stale app grant: {error}");
+            let _ =
+                write_accessibility_recovery_marker(&marker_path, &format!("failed:{identity}"));
+            ACCESSIBILITY_RECOVERY_RUNNING.store(false, Ordering::Release);
+            return;
+        }
+        if !write_accessibility_recovery_marker(&marker_path, &format!("attempted:{identity}")) {
+            ACCESSIBILITY_RECOVERY_RUNNING.store(false, Ordering::Release);
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+        focus::request_trust();
+        for _ in 0..ACCESSIBILITY_RECOVERY_POLLS {
+            if focus::trusted() {
+                let _ = write_accessibility_recovery_marker(
+                    &marker_path,
+                    &format!("trusted:{identity}"),
+                );
+                app.request_restart();
+                return;
+            }
+            std::thread::sleep(ACCESSIBILITY_RECOVERY_POLL);
+        }
+        ACCESSIBILITY_RECOVERY_RUNNING.store(false, Ordering::Release);
+    });
 }
 
 fn preferred_window(snapshot: &ProviderSnapshot) -> Option<(&'static str, &UsageWindow)> {
@@ -185,7 +304,7 @@ fn focused_provider() -> Focus {
         let bundle_id = application
             .bundleIdentifier()
             .map(|value| value.to_string());
-        if bundle_id.as_deref() == Some("app.ccquota.desktop") {
+        if bundle_id.as_deref() == Some(APP_BUNDLE_ID) {
             return Focus::Widget;
         }
         let name = application.localizedName().map(|value| value.to_string());
@@ -1409,10 +1528,16 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
             };
         }),
         "follow_window" => {
-            // Shows the system's Accessibility dialog; the checkbox reflects the granted state
-            // the next time the menu is rebuilt (granting may need an app restart to bite).
-            focus::request_trust();
-            refresh_tray_from_cache(app);
+            // The same repair stays available manually if the once-per-version automatic prompt
+            // was declined or timed out. The menu item is disabled while already trusted, so a
+            // healthy grant is never reset.
+            if let Ok(data_dir) = app.path().app_config_dir() {
+                start_accessibility_recovery(
+                    app.clone(),
+                    data_dir.join(ACCESSIBILITY_RECOVERY_MARKER),
+                    current_build_identity(),
+                );
+            }
         }
         "autostart" => {
             let manager = app.autolaunch();
@@ -1530,6 +1655,7 @@ pub fn run() {
 
             let data_dir = app.path().app_config_dir()?;
             let preferences_path = data_dir.join("preferences.json");
+            let accessibility_recovery_path = data_dir.join(ACCESSIBILITY_RECOVERY_MARKER);
             let legacy_preferences_path = data_dir.parent().map(|parent| {
                 parent
                     .join("app.quotafloat.desktop")
@@ -1590,6 +1716,19 @@ pub fn run() {
             let _ = apply_lock(app.handle(), preferences.locked);
             let _ = apply_widget_visibility(app.handle(), preferences.widget_visible);
             refresh_tray_from_cache(app.handle());
+
+            let build_identity = current_build_identity();
+            if accessibility_recovery_needed(
+                &accessibility_recovery_path,
+                &build_identity,
+                focus::trusted(),
+            ) {
+                start_accessibility_recovery(
+                    app.handle().clone(),
+                    accessibility_recovery_path,
+                    build_identity,
+                );
+            }
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -1722,6 +1861,110 @@ mod active_provider_tests {
         let resolved = resolve_active_provider(Focus::Widget, Some("alpha"), || None, &mut shown);
         assert_eq!(resolved.as_deref(), Some("alpha"));
         assert_eq!(shown.as_deref(), Some("alpha"));
+    }
+}
+
+#[cfg(test)]
+mod accessibility_recovery_tests {
+    use super::{
+        accessibility_recovery_needed, write_accessibility_recovery_marker, APP_BUNDLE_ID,
+    };
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+        time::SystemTime,
+    };
+
+    static NEXT_TEMP_MARKER: AtomicU64 = AtomicU64::new(0);
+
+    struct TempMarker(PathBuf);
+
+    impl TempMarker {
+        fn new() -> Self {
+            let stamp = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let sequence = NEXT_TEMP_MARKER.fetch_add(1, Ordering::Relaxed);
+            Self(std::env::temp_dir().join(format!(
+                "cc-quota-accessibility-{}-{stamp}-{sequence}",
+                std::process::id()
+            )))
+        }
+    }
+
+    impl Drop for TempMarker {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_valid_grant_is_never_reset_for_an_update() {
+        let tree = TempMarker::new();
+        let marker = tree.0.join("marker");
+        assert!(!accessibility_recovery_needed(&marker, "0.6.0:aaa", true));
+        assert_eq!(fs::read_to_string(&marker).unwrap(), "trusted:0.6.0:aaa");
+        // Revoking permission later in the same version is a user decision, not an invitation to
+        // interrupt every subsequent launch.
+        assert!(!accessibility_recovery_needed(&marker, "0.6.0:aaa", false));
+    }
+
+    #[test]
+    fn an_invalid_grant_is_offered_only_once_per_exact_build() {
+        let tree = TempMarker::new();
+        let marker = tree.0.join("marker");
+
+        assert!(accessibility_recovery_needed(&marker, "0.6.0:aaa", false));
+        assert!(write_accessibility_recovery_marker(
+            &marker,
+            "attempted:0.6.0:aaa"
+        ));
+        assert!(!accessibility_recovery_needed(&marker, "0.6.0:aaa", false));
+        assert!(accessibility_recovery_needed(&marker, "0.6.0:bbb", false));
+    }
+
+    #[test]
+    fn a_failed_reset_does_not_auto_retry_but_manual_recovery_remains_available() {
+        let tree = TempMarker::new();
+        let marker = tree.0.join("marker");
+        assert!(write_accessibility_recovery_marker(
+            &marker,
+            "failed:0.6.0:aaa"
+        ));
+        assert!(!accessibility_recovery_needed(&marker, "0.6.0:aaa", false));
+    }
+
+    #[test]
+    fn an_unwritable_marker_refuses_to_claim_a_system_prompt() {
+        let tree = TempMarker::new();
+        fs::create_dir_all(&tree.0).unwrap();
+        let file_in_the_way = tree.0.join("not-a-directory");
+        fs::write(&file_in_the_way, b"x").unwrap();
+        assert!(!write_accessibility_recovery_marker(
+            &file_in_the_way.join("marker"),
+            "attempted:0.6.0:aaa"
+        ));
+    }
+
+    #[test]
+    fn a_fresh_install_gets_one_automatic_system_prompt_per_exact_build() {
+        let tree = TempMarker::new();
+        let marker = tree.0.join("marker");
+        assert!(accessibility_recovery_needed(&marker, "0.6.0:aaa", false));
+        assert!(write_accessibility_recovery_marker(
+            &marker,
+            "attempted:0.6.0:aaa"
+        ));
+        assert!(!accessibility_recovery_needed(&marker, "0.6.0:aaa", false));
+    }
+
+    #[test]
+    fn privacy_reset_bundle_id_cannot_drift_from_the_app_manifest() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(manifest["identifier"].as_str(), Some(APP_BUNDLE_ID));
     }
 }
 

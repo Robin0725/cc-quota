@@ -18,8 +18,11 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC Quota 0.5.9 highlights
+## CC Quota 0.5.10 highlights
 
+- Keeps every weekly rail in its provider identity colour instead of replacing Claude or Kimi with the same caution/critical colour.
+- Repairs stale ad-hoc Accessibility grants automatically on the first untrusted launch of each exact build, scoped only to CC Quota and never granting the permission without the user's macOS approval.
+- Seeds existing Codex, Claude, and Kimi prompt activity at startup, so restarting the app does not temporarily forget which terminal was used most recently.
 - Restores the card's exact original 3px left-border accent rail and turns only that rail into the bottom-up weekly meter; no ring mask or extra outline is involved.
 - Gives the floating widget the same left-border rail while keeping its keyboard focus outline visually and semantically separate.
 - Keeps that weekly edge present whenever weekly data exists, even when the main figure has already fallen back to the weekly window.
@@ -54,7 +57,7 @@ Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See
 - Keeps the floating window optional and disabled by default.
 - Uses a `100 × 100` transparent compact window with one dominant percentage; clicking keeps that trigger in place and opens a `320 × 320` detail panel directly below it, holding one card per signed-in provider.
 - Fits three provider cards without scrolling, and scrolls rather than trimming a line when the content grows past the panel.
-- Follows the window you click first: when the focused app or its window title names an assistant (terminals title their windows after the running command), the widget switches to it immediately. Reading window titles is optional and needs the macOS Accessibility permission, offered once from the tray menu; titles are matched in memory and never stored or logged.
+- Follows the window you click first: when the focused app or its window title names an assistant (terminals title their windows after the running command), the widget switches to it immediately. Reading window titles needs the macOS Accessibility permission; on the first untrusted launch of each exact ad-hoc build, the app automatically clears only its own stale record and opens the system authorization flow once. The tray menu can retry manually, and the user still approves macOS's system switch; titles are matched in memory and never stored or logged.
 - Otherwise follows whichever assistant you last typed to, by watching each CLI's prompt-history path — a file only your own input touches, so an agent left grinding in the background cannot pin the widget to itself. Several assistants used from one terminal are told apart correctly, which the frontmost application can never do. Watching is event-driven, so an idle Mac is not polled; the frontmost app remains the fallback when nothing has been active yet.
 - Uses tiny `CX / CL / KM` and `5H / W` markers so the single number is never ambiguous.
 - Keeps Codex cool blue, Claude warm orange, and Kimi Code violet, with restrained static gradients and no material animation.

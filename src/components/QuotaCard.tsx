@@ -181,7 +181,7 @@ export const QuotaOrb = memo(function QuotaOrb({ snapshot, onDrag, onHover, onTo
       data-cc-focus-target="true"
     >
       {weeklyPercent !== null ? (
-        <span className={`orb-weekly-edge orb-weekly-edge--tier-${quotaTier(weeklyPercent)}`} aria-hidden="true">
+        <span className="orb-weekly-edge" aria-hidden="true">
           <i style={weeklyRevealStyle(weeklyPercent)} />
         </span>
       ) : null}
@@ -274,7 +274,7 @@ export const QuotaDetails = memo(function QuotaDetails({ snapshots, onDrag, onTo
             <section className="detail-provider" style={accentStyle(snapshot, descriptors)} key={snapshot.provider}>
               {weeklyEdgeValue !== null ? (
                 <span
-                  className={`detail-weekly-edge detail-weekly-edge--tier-${quotaTier(weeklyEdgeValue)}`}
+                  className="detail-weekly-edge"
                   role="meter"
                   aria-label={`${snapshot.displayName} ${labels.weekly}`}
                   aria-valuemin={0}
