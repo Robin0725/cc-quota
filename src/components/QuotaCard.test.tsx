@@ -123,6 +123,18 @@ describe("floating widget interactions", () => {
     expect(screen.getByRole("button").getAttribute("aria-label")).toContain("周额度 72%");
   });
 
+  it("does not put weekly severity on the orb's provider rail", () => {
+    const weeklyCritical: ProviderSnapshot = { ...kimicode, weeklyWindow: { ...kimicode.weeklyWindow!, remainingPercent: 4 } };
+    const descriptors = { kimicode: { id: "kimicode", displayName: "Kimi Code", abbreviation: "KM", accentHex: "#7c5cd6" } };
+    const { container } = render(
+      <QuotaOrb snapshot={weeklyCritical} descriptors={descriptors} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />,
+    );
+
+    expect(container.querySelector(".orb-weekly-edge")?.className).toBe("orb-weekly-edge");
+    expect(container.querySelector<HTMLElement>(".orb-weekly-edge i")?.style.getPropertyValue("--weekly-hidden")).toBe("96%");
+    expect(container.querySelector<HTMLElement>(".quota-orb")?.style.getPropertyValue("--provider-accent")).toBe("#7c5cd6");
+  });
+
   it("omits the countdown when only a weekly window is available", () => {
     const weeklyOnly: ProviderSnapshot = { ...codex, shortWindow: null };
     const { container } = render(<QuotaOrb snapshot={weeklyOnly} onDrag={() => undefined} onHover={() => undefined} onToggleExpanded={() => undefined} />);
@@ -215,11 +227,23 @@ describe("floating widget interactions", () => {
     expect(rails.map((rail) => rail.querySelector<HTMLElement>("i")?.style.getPropertyValue("--weekly-hidden"))).toEqual(["28%", "47%"]);
   });
 
-  it("uses weekly severity on the secondary rail independently of the main figure", () => {
-    const weeklyCritical: ProviderSnapshot = { ...codex, weeklyWindow: { ...codex.weeklyWindow!, remainingPercent: 4 } };
-    const { container } = render(<QuotaDetails snapshots={[weeklyCritical]} onDrag={() => undefined} onToggleExpanded={() => undefined} />);
+  it("keeps Claude and Kimi rails distinct when both weekly quotas are critical", () => {
+    const weeklyCritical = [claude, kimicode].map((snapshot) => ({
+      ...snapshot,
+      weeklyWindow: { ...snapshot.weeklyWindow!, remainingPercent: 4 },
+    }));
+    const descriptors = {
+      claude: { id: "claude", displayName: "Claude", abbreviation: "CL", accentHex: "#b85a3a" },
+      kimicode: { id: "kimicode", displayName: "Kimi Code", abbreviation: "KM", accentHex: "#7c5cd6" },
+    };
+    const { container } = render(
+      <QuotaDetails snapshots={weeklyCritical} descriptors={descriptors} onDrag={() => undefined} onToggleExpanded={() => undefined} />,
+    );
 
-    expect(container.querySelector(".detail-weekly-edge--tier-critical")).toBeTruthy();
+    const cards = [...container.querySelectorAll<HTMLElement>(".detail-provider")];
+    const rails = [...container.querySelectorAll<HTMLElement>(".detail-weekly-edge")];
+    expect(cards.map((card) => card.style.getPropertyValue("--provider-accent"))).toEqual(["#b85a3a", "#7c5cd6"]);
+    expect(rails.map((rail) => rail.className)).toEqual(["detail-weekly-edge", "detail-weekly-edge"]);
     expect(container.querySelector(".detail-progress--tier-healthy")).toBeTruthy();
   });
 
@@ -231,8 +255,7 @@ describe("floating widget interactions", () => {
 
     expect(rails.map((rail) => rail.getAttribute("aria-valuenow"))).toEqual(["0", "100"]);
     expect(rails.map((rail) => rail.querySelector<HTMLElement>("i")?.style.getPropertyValue("--weekly-hidden"))).toEqual(["100%", "0%"]);
-    expect(rails[0].className).toContain("tier-critical");
-    expect(rails[1].className).toContain("tier-healthy");
+    expect(rails.map((rail) => rail.className)).toEqual(["detail-weekly-edge", "detail-weekly-edge"]);
   });
 
   it("keeps the weekly rail on retained stale data and labels the card stale", () => {
@@ -361,7 +384,7 @@ describe("floating widget interactions", () => {
     it("reveals the original 3px left-border rail from the bottom without scaling its corners", () => {
       for (const selector of [".orb-weekly-edge i", ".detail-weekly-edge i"]) {
         const edge = declarationsFor(selector);
-        expect(edge).toMatch(/border-left:\s*3px\s+solid/);
+        expect(edge).toMatch(/border-left:\s*3px\s+solid\s+var\(--provider-accent/);
         expect(edge).toMatch(/inset:\s*-1px/);
         expect(edge).toMatch(/left:\s*-3px/);
         expect(edge).toMatch(/clip-path:\s*inset\(var\(--weekly-hidden\)\s+0\s+0\s+0\s+round\s+3px\)/);
@@ -375,6 +398,7 @@ describe("floating widget interactions", () => {
         expect(edge).not.toMatch(/mask-composite/);
         expect(edge).not.toMatch(/calc\(100%\s*-\s*24px\)/);
       }
+      expect(stylesheet).not.toMatch(/(?:orb|detail)-weekly-edge--tier-/);
     });
   });
 

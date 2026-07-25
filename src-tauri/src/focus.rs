@@ -4,8 +4,9 @@
 //! The frontmost *application* usually cannot answer which assistant is in use — every CLI runs
 //! in the same terminal — but the focused window's *title* usually can, because terminals title
 //! their windows after the running command ("claude", "kimi", …). Reading a window title needs
-//! the macOS Accessibility permission, which the user grants once from the tray menu; without it
-//! everything here reports `None` and the caller falls back to the prompt-history signal.
+//! the macOS Accessibility permission. The tray menu can request it, and each exact ad-hoc build
+//! repairs its own stale row once on its first untrusted launch; without a valid grant everything here
+//! reports `None` and the caller falls back to the prompt-history signal.
 //!
 //! Privacy rules, same spirit as [`crate::providers::activity`]:
 //!
@@ -22,7 +23,12 @@ mod macos {
         dictionary::CFDictionary,
         string::{CFString, CFStringRef},
     };
-    use std::ffi::c_void;
+    use std::{
+        ffi::c_void,
+        process::{Command, Stdio},
+        thread,
+        time::{Duration, Instant},
+    };
 
     type AXUIElementRef = *const c_void;
     type AXError = i32;
@@ -55,6 +61,33 @@ mod macos {
                 CFBoolean::true_value().as_CFType(),
             )]);
             AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef() as *const c_void);
+        }
+    }
+
+    /// Removes only this app's stale Accessibility decision. Updates distributed with an ad-hoc
+    /// signature have a different designated requirement even though their bundle id is stable,
+    /// so toggling the old System Settings row cannot make the new binary trusted. Resetting the
+    /// bundle-scoped decision makes the immediately following `request_trust` create a fresh row.
+    pub fn reset_trust() -> Result<(), String> {
+        let mut child = Command::new("/usr/bin/tccutil")
+            .args(["reset", "Accessibility", crate::APP_BUNDLE_ID])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| "failed to start the macOS privacy reset".to_string())?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => return Ok(()),
+                Ok(Some(_)) => return Err("macOS rejected the Accessibility reset".into()),
+                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("the macOS Accessibility reset timed out".into());
+                }
+            }
         }
     }
 
@@ -95,7 +128,7 @@ mod macos {
 }
 
 #[cfg(target_os = "macos")]
-pub use macos::{focused_window_title, request_trust, trusted};
+pub use macos::{focused_window_title, request_trust, reset_trust, trusted};
 
 #[cfg(not(target_os = "macos"))]
 pub fn trusted() -> bool {
@@ -104,6 +137,11 @@ pub fn trusted() -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn request_trust() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn reset_trust() -> Result<(), String> {
+    Err("Accessibility recovery is only available on macOS".into())
+}
 
 #[cfg(not(target_os = "macos"))]
 pub fn focused_window_title(_pid: i32) -> Option<String> {

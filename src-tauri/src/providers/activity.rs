@@ -59,6 +59,49 @@ fn modified(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).ok()?.modified().ok()
 }
 
+/// Newest existing activity below a root, used once at launch to avoid starting with an empty
+/// answer after an app update. Only metadata is inspected; file names and contents never escape.
+fn newest_existing_stamp(root: &Path) -> Option<SystemTime> {
+    if root.is_file() {
+        return modified(root);
+    }
+    let mut newest = None;
+    let mut pending = vec![(root.to_path_buf(), 0usize)];
+    while let Some((directory, depth)) = pending.pop() {
+        if depth > MAX_DESCENT_DEPTH {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                pending.push((entry.path(), depth + 1));
+            } else if kind.is_file() {
+                let Some(stamp) = entry.metadata().ok().and_then(|item| item.modified().ok())
+                else {
+                    continue;
+                };
+                if newest.is_none_or(|best| stamp > best) {
+                    newest = Some(stamp);
+                }
+            }
+        }
+    }
+    newest
+}
+
+fn seed_existing_activity(roots: &[Root], state: &Observations) {
+    for (provider, root) in roots {
+        if let Some(stamp) = newest_existing_stamp(root) {
+            record(state, provider, stamp);
+        }
+    }
+}
+
 fn record(state: &Observations, provider: &'static str, at: SystemTime) {
     if let Ok(mut observations) = state.lock() {
         let slot = observations.entry(provider).or_insert(at);
@@ -319,7 +362,11 @@ impl ActivityTracker {
     fn start() -> Self {
         let state = Arc::new(Observations::default());
         let roots = registered_roots();
-        let (watcher, unwatched) = start_watching(roots, Arc::clone(&state));
+        // Subscribe first, then seed. An event landing between the two records `now`, and the
+        // older on-disk mtime cannot overwrite it; reversing the order would leave a race where a
+        // prompt submitted during startup is missed entirely.
+        let (watcher, unwatched) = start_watching(roots.clone(), Arc::clone(&state));
+        seed_existing_activity(&roots, &state);
         let fallback = (!unwatched.is_empty()).then(|| Mutex::new(Fallback::new(unwatched)));
         Self {
             state,
@@ -467,6 +514,29 @@ mod tests {
             state.lock().unwrap().contains_key("alpha"),
             "fallback observed no activity for a file root"
         );
+    }
+
+    #[test]
+    fn startup_seeds_existing_file_and_nested_directory_activity() {
+        let tree = TempTree::new("seed");
+        let single = tree.0.join("history.jsonl");
+        let nested = tree.0.join("user-history").join("2026").join("07");
+        fs::write(&single, b"x").unwrap();
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("prompt.jsonl"), b"x").unwrap();
+
+        let state = Observations::default();
+        seed_existing_activity(
+            &[
+                ("claude", single),
+                ("kimicode", tree.0.join("user-history")),
+            ],
+            &state,
+        );
+
+        let observed = state.lock().unwrap();
+        assert!(observed.contains_key("claude"));
+        assert!(observed.contains_key("kimicode"));
     }
 
     /// With a file root the watcher subscribes to the parent directory; a write to the file must
