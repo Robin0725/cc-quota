@@ -2393,7 +2393,9 @@ mod tray_icon_tests {
     }
 
     fn count_provider_pixels(rgba: &[u8], blue: bool) -> usize {
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| {
                 pixel[3] > 120
                     && if blue {
@@ -2406,7 +2408,9 @@ mod tray_icon_tests {
     }
 
     fn count_filled_pixels(rgba: &[u8], blue: bool) -> usize {
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| {
                 pixel[3] > 180
                     && if blue {
@@ -2419,7 +2423,9 @@ mod tray_icon_tests {
     }
 
     fn count_text_pixels(rgba: &[u8], width: u32, left: u32, right: u32) -> usize {
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(index, pixel)| {
                 let x = *index as u32 % width;
@@ -2436,7 +2442,9 @@ mod tray_icon_tests {
     }
 
     fn region_pixels(rgba: &[u8], width: u32, left: u32, right: u32) -> Vec<[u8; 4]> {
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .filter_map(|(index, pixel)| {
                 let x = index as u32 % width;
@@ -2849,7 +2857,7 @@ mod tray_icon_tests {
         let width = tray_icon_width(count);
         let background = [236_u8, 239_u8, 243_u8];
         let mut ppm = format!("P6\n{} {}\n255\n", width, TRAY_ICON_HEIGHT).into_bytes();
-        for pixel in rgba.chunks_exact(4) {
+        for pixel in rgba.as_chunks::<4>().0 {
             let alpha = pixel[3] as u16;
             for channel in 0..3 {
                 let value = (pixel[channel] as u16 * alpha
