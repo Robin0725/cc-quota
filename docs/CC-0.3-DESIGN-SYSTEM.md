@@ -7,6 +7,8 @@
 - No provider logo or initials in the status item; position and color carry provider identity, while the menu and tooltip provide text labels.
 - Percentage text remains centered regardless of value or time state.
 - Five small dots sit at the bottom edge without shifting the percentage. For a 5-hour window, one lit dot equals one remaining started hour. Weekly fallback omits the dots.
+- Left click toggles the tray between the unchanged 5-hour view and weekly quota; right click retains the full menu.
+- Weekly mode preserves the provider fill, centers a compact reset countdown, and adds alternating top/down fade boundaries every 2% only when the weekly remainder is at most 20%. The 10% boundary is a single solid full-height white line.
 
 ## Floating window
 

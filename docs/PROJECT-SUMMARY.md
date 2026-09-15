@@ -1,11 +1,12 @@
 # CC project summary
 
-CC Quota 0.5.12 is a Tauri 2 macOS menu bar utility that reads the sign-in state Codex Desktop, Claude Code, and Kimi Code already keep locally, and queries each provider's quota service. Providers are registered rather than hardcoded, so support for another one is a descriptor and an adapter.
+CC Quota 0.5.13 is a Tauri 2 macOS menu bar utility that reads the sign-in state Codex Desktop, Claude Code, and Kimi Code already keep locally, and queries each provider's quota service. Providers are registered rather than hardcoded, so support for another one is a descriptor and an adapter.
 
 ## Product behavior
 
 - The menu bar renders one provider-coloured capsule for every signed-in provider in registry order.
-- The exact percentage stays visually centered. Five small bottom dots represent remaining started hours only for a 5-hour window; weekly fallback has no dots.
+- The 5-hour view keeps the exact percentage visually centered, with five small bottom dots representing remaining started hours. Left-clicking the status item switches to a weekly view with a compact reset countdown; right-clicking keeps the full menu.
+- Weekly capsules preserve provider-coloured fill. At 20% or less they gain alternating top-down and bottom-up graduations every 2%, with a solid full-height white marker at 10%.
 - The optional floating trigger is `100 × 100`. Clicking opens a `320 × 320` provider panel below it, or above when space requires, while keeping the trigger anchored.
 - Whenever a weekly window exists, the original 3px `border-left` accent rail reveals its remainder bottom-up on each detail card; the compact trigger borrows the same rail geometry without turning its focus outline into data. Hovering the trigger reveals the exact weekly figure, and weekly-only providers keep the visual edge even though the central number already carries the same value.
 - The compact trigger follows the focused provider window when identifiable, otherwise the last assistant the user typed to; focusing CC keeps the previous provider.

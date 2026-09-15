@@ -21,7 +21,7 @@ use strings::{tray_copy, TrayCopy};
 use tauri::{
     image::Image,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, State, WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
@@ -51,6 +51,7 @@ struct AppState {
     client: reqwest::Client,
     preferences: Mutex<WidgetPreferences>,
     preferences_path: PathBuf,
+    tray_weekly_mode: AtomicBool,
     fetch_gate: FetchGate,
     snapshot_cache: Mutex<Option<(Instant, Vec<ProviderSnapshot>)>>,
 }
@@ -437,6 +438,30 @@ fn snapshot_time_hours(snapshot: Option<&ProviderSnapshot>, now: &DateTime<Utc>)
     time_remaining_hours(window, now)
 }
 
+fn weekly_reset_countdown(window: &UsageWindow, now: &DateTime<Utc>) -> Option<String> {
+    let resets_at = DateTime::parse_from_rfc3339(window.resets_at.as_deref()?)
+        .ok()?
+        .with_timezone(&Utc);
+    let remaining_minutes = (resets_at - now).num_minutes();
+    if remaining_minutes <= 0 {
+        return Some("0h".into());
+    }
+    let total_hours = ((remaining_minutes as f64) / 60.0).ceil() as i64;
+    if total_hours >= 48 {
+        return Some(format!("{}d", (total_hours + 23) / 24));
+    }
+    if total_hours >= 24 {
+        let days = total_hours / 24;
+        let hours = total_hours % 24;
+        return Some(if hours == 0 {
+            format!("{days}d")
+        } else {
+            format!("{days}d{hours}h")
+        });
+    }
+    Some(format!("{total_hours}h"))
+}
+
 fn rounded_rect_contains(
     x: f32,
     y: f32,
@@ -753,11 +778,12 @@ fn tray_font() -> Option<&'static fontdue::Font> {
     .as_ref()
 }
 
-fn draw_system_percent_label(
+fn draw_system_label(
     buffer: &mut [u8],
     canvas_width: u32,
     capsule_left: f32,
-    percent: Option<u8>,
+    text: &str,
+    font_size: f32,
 ) -> bool {
     use fontdue::layout::{
         CoordinateSystem, HorizontalAlign, Layout, LayoutSettings, TextStyle, VerticalAlign,
@@ -766,9 +792,6 @@ fn draw_system_percent_label(
     let Some(font) = tray_font() else {
         return false;
     };
-    let text = percent
-        .map(|value| format!("{value}%"))
-        .unwrap_or_else(|| "—".to_string());
     let mut layout = Layout::new(CoordinateSystem::PositiveYDown);
     layout.reset(&LayoutSettings {
         x: capsule_left,
@@ -779,7 +802,7 @@ fn draw_system_percent_label(
         vertical_align: VerticalAlign::Middle,
         ..LayoutSettings::default()
     });
-    layout.append(&[font], &TextStyle::new(&text, 22.5, 0));
+    layout.append(&[font], &TextStyle::new(text, font_size, 0));
     if layout.glyphs().is_empty() {
         return false;
     }
@@ -822,7 +845,10 @@ fn draw_percent_label(
     capsule_left: f32,
     percent: Option<u8>,
 ) {
-    if draw_system_percent_label(buffer, canvas_width, capsule_left, percent) {
+    let text = percent
+        .map(|value| format!("{value}%"))
+        .unwrap_or_else(|| "—".to_string());
+    if draw_system_label(buffer, canvas_width, capsule_left, &text, 22.5) {
         return;
     }
     let text_color = [255, 255, 255, 244];
@@ -872,6 +898,20 @@ fn draw_percent_label(
     );
 }
 
+fn draw_weekly_reset_label(
+    buffer: &mut [u8],
+    canvas_width: u32,
+    capsule_left: f32,
+    label: Option<&str>,
+    fallback_percent: Option<u8>,
+) {
+    let label = label.unwrap_or("—");
+    let font_size = if label.len() >= 4 { 19.5 } else { 22.0 };
+    if !draw_system_label(buffer, canvas_width, capsule_left, label, font_size) {
+        draw_percent_label(buffer, canvas_width, capsule_left, fallback_percent);
+    }
+}
+
 fn draw_capsule_time_dots(buffer: &mut [u8], canvas_width: u32, left: f32, hours: u8) {
     let spacing = 6.0;
     let start_x = left + TRAY_CAPSULE_WIDTH * 0.5
@@ -902,12 +942,136 @@ fn draw_capsule_time_dots(buffer: &mut [u8], canvas_width: u32, left: f32, hours
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn draw_weekly_tick(
+    buffer: &mut [u8],
+    canvas_width: u32,
+    geometry: CapsuleGeometry,
+    center_x: f32,
+    from_top: bool,
+    full_height: bool,
+    thickness: f32,
+    color: [u8; 4],
+) {
+    let left = (center_x - thickness).floor().max(0.0) as u32;
+    let right = (center_x + thickness).ceil().min(canvas_width as f32) as u32;
+    let top = geometry.top.floor().max(0.0) as u32;
+    let bottom = (geometry.top + geometry.height)
+        .ceil()
+        .min(TRAY_ICON_HEIGHT as f32) as u32;
+    let radius = thickness * 0.5;
+    let capsule_center_y = geometry.top + geometry.height * 0.5;
+    let left_cap_center_x = geometry.left + geometry.radius;
+    let right_cap_center_x = geometry.left + geometry.width - geometry.radius;
+    let cap_dx = if center_x < left_cap_center_x {
+        left_cap_center_x - center_x
+    } else if center_x > right_cap_center_x {
+        center_x - right_cap_center_x
+    } else {
+        0.0
+    };
+    let visible_half_height = if cap_dx > 0.0 {
+        (geometry.radius * geometry.radius - cap_dx * cap_dx)
+            .max(0.0)
+            .sqrt()
+    } else {
+        geometry.height * 0.5
+    };
+    let visible_top = capsule_center_y - visible_half_height;
+    let visible_bottom = capsule_center_y + visible_half_height;
+    let visible_height = (visible_bottom - visible_top).max(1.0);
+
+    for y in top..bottom {
+        for x in left..right {
+            let mut amount = 0.0;
+            for sample_y in 0..4 {
+                for sample_x in 0..4 {
+                    let px = x as f32 + (sample_x as f32 + 0.5) / 4.0;
+                    let py = y as f32 + (sample_y as f32 + 0.5) / 4.0;
+                    if (px - center_x).abs() > radius
+                        || !rounded_rect_contains(
+                            px,
+                            py,
+                            geometry.left,
+                            geometry.top,
+                            geometry.width,
+                            geometry.height,
+                            geometry.radius,
+                        )
+                    {
+                        continue;
+                    }
+                    let progress = ((py - visible_top) / visible_height).clamp(0.0, 1.0);
+                    let fade = if full_height {
+                        1.0
+                    } else if from_top {
+                        (1.0 - progress / 0.58).clamp(0.0, 1.0)
+                    } else {
+                        (1.0 - (1.0 - progress) / 0.58).clamp(0.0, 1.0)
+                    };
+                    amount += fade;
+                }
+            }
+            if amount > 0.0 {
+                blend_pixel(buffer, canvas_width, x, y, color, amount / 16.0);
+            }
+        }
+    }
+}
+
+fn draw_weekly_graduations(
+    buffer: &mut [u8],
+    canvas_width: u32,
+    geometry: CapsuleGeometry,
+    percent: u8,
+    palette: CapsulePalette,
+) {
+    if percent == 0 || percent > 20 {
+        return;
+    }
+    for boundary in 1..10 {
+        let boundary_percent = boundary * 2;
+        if boundary_percent >= percent {
+            break;
+        }
+        let center_x = geometry.left + geometry.width * boundary_percent as f32 / 100.0;
+        if boundary_percent == 10 {
+            draw_weekly_tick(
+                buffer,
+                canvas_width,
+                geometry,
+                center_x,
+                true,
+                true,
+                1.15,
+                [255, 255, 255, 246],
+            );
+        } else {
+            let mut tick_color = palette.track;
+            tick_color[3] = 242;
+            draw_weekly_tick(
+                buffer,
+                canvas_width,
+                geometry,
+                center_x,
+                boundary % 2 == 1,
+                false,
+                0.58,
+                tick_color,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_tray_capsule(
     buffer: &mut [u8],
     canvas_width: u32,
     left: f32,
     percent: Option<u8>,
     time_hours: Option<u8>,
+    weekly_reset_label: Option<&str>,
+    weekly_graduations: bool,
     palette: CapsulePalette,
 ) {
     let top = 1.0;
@@ -937,33 +1101,43 @@ fn draw_tray_capsule(
         palette.track,
     );
     if let Some(value) = percent {
+        let geometry = CapsuleGeometry {
+            left: inner_left,
+            top: inner_top,
+            width: inner_width,
+            height: inner_height,
+            radius: radius - 1.2,
+        };
         draw_capsule_fill(
             buffer,
             canvas_width,
-            CapsuleGeometry {
-                left: inner_left,
-                top: inner_top,
-                width: inner_width,
-                height: inner_height,
-                radius: radius - 1.2,
-            },
+            geometry,
             value,
             palette.fill_top,
             palette.fill_bottom,
         );
+        if weekly_graduations {
+            draw_weekly_graduations(buffer, canvas_width, geometry, value, palette);
+        }
     }
-    draw_percent_label(buffer, canvas_width, left, percent);
+    if weekly_graduations {
+        draw_weekly_reset_label(buffer, canvas_width, left, weekly_reset_label, percent);
+    } else {
+        draw_percent_label(buffer, canvas_width, left, percent);
+    }
     if let Some(value) = time_hours {
         draw_capsule_time_dots(buffer, canvas_width, left, value);
     }
 }
 
 /// One capsule's worth of already-resolved drawing input.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct TrayCapsule {
     palette: CapsulePalette,
     percent: Option<u8>,
     time_hours: Option<u8>,
+    weekly_reset_label: Option<String>,
+    weekly_graduations: bool,
 }
 
 /// Icon width for `count` capsules, per the provider registry contract §1.5.
@@ -993,6 +1167,8 @@ fn render_tray_capsules(capsules: &[TrayCapsule]) -> Vec<u8> {
             tray_capsule_left(index, capsules.len()),
             capsule.percent,
             capsule.time_hours,
+            capsule.weekly_reset_label.as_deref(),
+            capsule.weekly_graduations,
             capsule.palette,
         );
     }
@@ -1001,7 +1177,16 @@ fn render_tray_capsules(capsules: &[TrayCapsule]) -> Vec<u8> {
 
 /// Turns the snapshots the app currently holds into the menu bar bitmap.
 /// Returns the pixels alongside the width, which now varies with the provider count.
+#[cfg(test)]
 fn tray_icon_rgba(snapshots: &[ProviderSnapshot], now: &DateTime<Utc>) -> (Vec<u8>, u32) {
+    tray_icon_rgba_for_mode(snapshots, now, false)
+}
+
+fn tray_icon_rgba_for_mode(
+    snapshots: &[ProviderSnapshot],
+    now: &DateTime<Utc>,
+    weekly_mode: bool,
+) -> (Vec<u8>, u32) {
     if snapshots.len() > TRAY_CAPSULE_WARN_COUNT {
         eprintln!(
             "menu bar icon is showing {} providers; it may crowd the menu bar",
@@ -1012,10 +1197,22 @@ fn tray_icon_rgba(snapshots: &[ProviderSnapshot], now: &DateTime<Utc>) -> (Vec<u
         .iter()
         .filter_map(|snapshot| {
             let descriptor = providers::find(&snapshot.provider)?.descriptor();
+            let weekly_window = weekly_mode
+                .then_some(snapshot.weekly_window.as_ref())
+                .flatten();
             Some(TrayCapsule {
                 palette: descriptor.palette,
-                percent: snapshot_percent(Some(snapshot)),
-                time_hours: snapshot_time_hours(Some(snapshot), now),
+                percent: weekly_window.map(rounded_percent).or_else(|| {
+                    (!weekly_mode)
+                        .then(|| snapshot_percent(Some(snapshot)))
+                        .flatten()
+                }),
+                time_hours: (!weekly_mode)
+                    .then(|| snapshot_time_hours(Some(snapshot), now))
+                    .flatten(),
+                weekly_reset_label: weekly_window
+                    .and_then(|window| weekly_reset_countdown(window, now)),
+                weekly_graduations: weekly_mode,
             })
         })
         .collect();
@@ -1033,6 +1230,8 @@ fn empty_tray_icon_rgba() -> (Vec<u8>, u32) {
             palette: adapter.descriptor().palette,
             percent: None,
             time_hours: None,
+            weekly_reset_label: None,
+            weekly_graduations: false,
         })
         .collect();
     (
@@ -1218,7 +1417,8 @@ fn update_tray_ui(app: &AppHandle, snapshots: &[ProviderSnapshot]) -> Result<(),
             })
         })
         .collect();
-    let (pixels, width) = tray_icon_rgba(&ordered_snapshots, &now);
+    let weekly_mode = state.tray_weekly_mode.load(Ordering::Acquire);
+    let (pixels, width) = tray_icon_rgba_for_mode(&ordered_snapshots, &now, weekly_mode);
     tray.set_icon_with_as_template(
         Some(Image::new_owned(pixels, width, TRAY_ICON_HEIGHT)),
         false,
@@ -1235,6 +1435,12 @@ fn refresh_tray_from_cache(app: &AppHandle) {
     let state = app.state::<AppState>();
     let values = cached_snapshots(&state);
     let _ = update_tray_ui(app, &values);
+}
+
+fn toggle_tray_quota_window(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    state.tray_weekly_mode.fetch_xor(true, Ordering::AcqRel);
+    refresh_tray_from_cache(app);
 }
 
 fn unavailable_snapshots(message: &str) -> Vec<ProviderSnapshot> {
@@ -1672,9 +1878,21 @@ fn setup_tray(app: &tauri::App, language: &str) -> tauri::Result<()> {
         .icon(Image::new_owned(pixels, width, TRAY_ICON_HEIGHT))
         .icon_as_template(false)
         .menu(&menu)
-        .show_menu_on_left_click(true)
+        // Left click switches the glanceable quota window. The complete menu remains available
+        // from the platform-standard right click.
+        .show_menu_on_left_click(false)
         .tooltip(tooltip)
         .on_menu_event(|app, event| handle_tray_menu(app, event.id.as_ref()))
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                toggle_tray_quota_window(tray.app_handle());
+            }
+        })
         .build(app)?;
     Ok(())
 }
@@ -1750,6 +1968,7 @@ pub fn run() {
                 client,
                 preferences: Mutex::new(preferences.clone()),
                 preferences_path,
+                tray_weekly_mode: AtomicBool::new(false),
                 fetch_gate: FetchGate::new(),
                 snapshot_cache: Mutex::new(None),
             });
@@ -2110,8 +2329,8 @@ mod tray_icon_tests {
     use super::{
         empty_tray_icon_rgba, merge_snapshots, providers, render_tray_capsules,
         time_remaining_hours, timed_out_snapshot, tray_capsule_left, tray_icon_rgba,
-        tray_icon_width, ProviderSnapshot, TrayCapsule, UsageWindow, TRAY_CAPSULE_WIDTH,
-        TRAY_ICON_HEIGHT,
+        tray_icon_rgba_for_mode, tray_icon_width, weekly_reset_countdown, ProviderSnapshot,
+        TrayCapsule, UsageWindow, TRAY_CAPSULE_WIDTH, TRAY_ICON_HEIGHT,
     };
     use chrono::{TimeZone, Utc};
 
@@ -2136,12 +2355,24 @@ mod tray_icon_tests {
                 palette: palette(index),
                 percent: *percent,
                 time_hours: *time_hours,
+                weekly_reset_label: None,
+                weekly_graduations: false,
             })
             .collect()
     }
 
     fn uniform(count: usize, percent: Option<u8>, time_hours: Option<u8>) -> Vec<TrayCapsule> {
         capsules(&vec![(percent, time_hours); count])
+    }
+
+    fn weekly_capsule(percent: Option<u8>, label: Option<&str>) -> TrayCapsule {
+        TrayCapsule {
+            palette: palette(0),
+            percent,
+            time_hours: None,
+            weekly_reset_label: label.map(str::to_owned),
+            weekly_graduations: true,
+        }
     }
 
     fn icon(values: &[(Option<u8>, Option<u8>)]) -> Vec<u8> {
@@ -2510,6 +2741,69 @@ mod tray_icon_tests {
         );
     }
 
+    #[test]
+    fn weekly_mode_uses_the_weekly_window_and_reset_countdown() {
+        let now = shortly_after_snapshot();
+        let mut snapshot = successful_snapshot("codex", 87.0);
+        snapshot.weekly_window = Some(UsageWindow {
+            remaining_percent: 18.0,
+            resets_at: Some("2026-07-18T12:10:00Z".into()),
+            window_seconds: 604_800,
+        });
+
+        let (weekly, width) = tray_icon_rgba_for_mode(&[snapshot.clone()], &now, true);
+        let expected = render_tray_capsules(&[weekly_capsule(Some(18), Some("18h"))]);
+        assert_eq!(width, TRAY_CAPSULE_WIDTH as u32);
+        assert_eq!(weekly, expected);
+
+        let (short, _) = tray_icon_rgba_for_mode(&[snapshot], &now, false);
+        assert_ne!(weekly, short);
+    }
+
+    #[test]
+    fn weekly_countdown_stays_compact_across_day_boundaries() {
+        let now = shortly_after_snapshot();
+        let window_at = |timestamp: &str| UsageWindow {
+            remaining_percent: 18.0,
+            resets_at: Some(timestamp.into()),
+            window_seconds: 604_800,
+        };
+        assert_eq!(
+            weekly_reset_countdown(&window_at("2026-07-20T18:10:00Z"), &now).as_deref(),
+            Some("3d")
+        );
+        assert_eq!(
+            weekly_reset_countdown(&window_at("2026-07-19T02:10:00Z"), &now).as_deref(),
+            Some("1d8h")
+        );
+        assert_eq!(
+            weekly_reset_countdown(&window_at("2026-07-18T12:10:00Z"), &now).as_deref(),
+            Some("18h")
+        );
+    }
+
+    #[test]
+    fn weekly_eighteen_percent_has_one_full_height_white_ten_percent_line() {
+        let rendered = render_tray_capsules(&[weekly_capsule(Some(18), Some("18h"))]);
+        let width = TRAY_CAPSULE_WIDTH as u32;
+        let marker_x = (1.2 + (TRAY_CAPSULE_WIDTH - 2.4) * 0.10).round() as u32;
+        let white_pixels = (0..TRAY_ICON_HEIGHT)
+            .filter(|y| {
+                (marker_x.saturating_sub(1)..=marker_x + 1).any(|x| {
+                    let index = (((*y * width) + x) * 4) as usize;
+                    rendered[index] > 125
+                        && rendered[index + 1] > 150
+                        && rendered[index + 2] > 210
+                        && rendered[index + 3] > 150
+                })
+            })
+            .count();
+        assert!(
+            white_pixels >= 18,
+            "10% marker is not a full-height white line: {white_pixels} rows"
+        );
+    }
+
     /// An unregistered provider id must not be drawn rather than crash or borrow another's colour.
     #[test]
     fn snapshots_from_unknown_providers_are_skipped() {
@@ -2532,11 +2826,26 @@ mod tray_icon_tests {
             return;
         };
         let count = providers::all().len();
-        // Same readings the pre-registry build previewed with, so the two images stay comparable.
-        let readings = [(Some(88), Some(4)), (Some(96), Some(2))];
-        let values: Vec<(Option<u8>, Option<u8>)> =
-            (0..count).map(|index| readings[index % 2]).collect();
-        let rgba = icon(&values);
+        let weekly = std::env::var("CC_TRAY_PREVIEW_MODE").as_deref() == Ok("weekly");
+        let rgba = if weekly {
+            render_tray_capsules(
+                &(0..count)
+                    .map(|index| TrayCapsule {
+                        palette: palette(index),
+                        percent: Some(18),
+                        time_hours: None,
+                        weekly_reset_label: Some("18h".into()),
+                        weekly_graduations: true,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            // Same readings the pre-registry build previewed with, so the two images stay comparable.
+            let readings = [(Some(88), Some(4)), (Some(96), Some(2))];
+            let values: Vec<(Option<u8>, Option<u8>)> =
+                (0..count).map(|index| readings[index % 2]).collect();
+            icon(&values)
+        };
         let width = tray_icon_width(count);
         let background = [236_u8, 239_u8, 243_u8];
         let mut ppm = format!("P6\n{} {}\n255\n", width, TRAY_ICON_HEIGHT).into_bytes();

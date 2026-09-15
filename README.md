@@ -18,6 +18,13 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
+## CC Quota 0.5.13 highlights
+
+- Left-click the menu bar capsules to switch between the familiar 5-hour view and a weekly view without opening the floating widget.
+- Shows each weekly reset as a compact countdown such as `5d`, `1d8h`, or `18h`, while preserving the provider-coloured capsule fill.
+- Adds alternating top-down and bottom-up graduations every 2% once weekly quota reaches 20% or less.
+- Marks the 10% boundary with one solid full-height white line, while leaving the 5-hour capsule design unchanged; right-click still opens the full menu.
+
 ## CC Quota 0.5.12 highlights
 
 - Forces a fresh quota read when focus moves between providers, so a newly awakened Kimi CLI can switch the orb immediately after renewing its short-lived token.
@@ -53,7 +60,8 @@ Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See
 - Enlarges each menu bar capsule to `40 × 17 pt` and scales the centered percentage with it, while staying inside the menu bar's safe visual height.
 - Keeps the quota percentage at the exact visual center of each capsule, with five small bottom-edge status dots that never change the number's size or placement.
 - Shows the 5-hour reset countdown through those dots: one lit dot equals one remaining started hour, so the last partial hour still shows one dot.
-- Clicking the menu bar capsules opens the full CC menu.
+- Left-clicking the menu bar capsules switches between the existing 5-hour view and a weekly view; right-clicking opens the full CC menu.
+- Keeps the 5-hour capsules pixel-for-pixel in their existing visual language. Weekly mode keeps the same provider-coloured fill, replaces the percentage with a compact reset countdown, and adds 2% alternating fade graduations only at 20% or below; the 10% boundary is one solid white line.
 - Uses the 5-hour quota whenever that window exists; only a missing 5-hour window falls back to weekly quota and receives a `W` marker.
 - Preserves a real 0% 5-hour value instead of incorrectly falling back.
 - Keeps the floating window optional and disabled by default.
@@ -82,7 +90,7 @@ The capsule keeps the menu bar quiet; the menu and tooltip retain the provider n
 Codex · week 42% · 07/20 18:00 reset
 ```
 
-Time dots appear only for the 5-hour window. When CC has to fall back to weekly quota, it omits the dots instead of pretending that five dots can represent a week; the exact weekly reset remains available in the menu and tooltip.
+Time dots appear only in the 5-hour view. Left-click the status item to see the weekly fill and compact reset countdown without opening a window; left-click again to return. At 20% or below, each subtle graduation represents 2%, while the solid white fifth boundary marks 10%. Right-click opens the full menu.
 
 Open the menu to inspect reset times, refresh immediately, show or hide the floating window, toggle always-on-top, unlock mouse passthrough, switch language, control launch at login, or quit CC.
 
