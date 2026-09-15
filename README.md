@@ -18,8 +18,9 @@ This project is an MIT-licensed adaptation of [change-42-yhmm/quota-float](https
 
 Created and maintained by [Robin0725](https://github.com/Robin0725) (Robin). See [AUTHORS.md](AUTHORS.md) for attribution details.
 
-## CC Quota 0.5.13 highlights
+## CC Quota 0.5.14 highlights
 
+- Keeps the menu bar capsules alive when the floating widget is hidden by deferring native menu replacement until the active macOS menu event has finished.
 - Left-click the menu bar capsules to switch between the familiar 5-hour view and a weekly view without opening the floating widget.
 - Shows each weekly reset as a compact countdown such as `5d`, `1d8h`, or `18h`, while preserving the provider-coloured capsule fill.
 - Adds alternating top-down and bottom-up graduations every 2% once weekly quota reaches 20% or less.

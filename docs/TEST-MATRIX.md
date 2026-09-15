@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | Window selection | 5-hour wins; 0% stays 0%; weekly only when short window is absent | Frontend and Rust parser tests | Real provider accounts |
 | Failure handling | Transient failure keeps last-good stale values; signed-out clears them | Frontend and Rust merge tests | Disconnect/sign-out smoke test |
-| Menu bar | Provider-colored capsules; left-click 5-hour/weekly toggle; right-click menu; unchanged 5-hour percentage/hour dots; weekly countdown and low-quota 2% graduations with a solid 10% line | Rust pixel tests | macOS status item inspection |
+| Menu bar | Provider-colored capsules; left-click 5-hour/weekly toggle; right-click menu; hiding the floating widget keeps the process and status item alive; unchanged 5-hour percentage/hour dots; weekly countdown and low-quota 2% graduations with a solid 10% line | Rust pixel tests | macOS status item show/hide inspection |
 | Floating placement | Trigger remains anchored; opens below/above and left/right based on work area | Bridge layout tests | Test all screen edges |
 | Floating interaction | Click expands, drag does not expand, collapse button and Escape work | Component tests | macOS click/drag/lock test |
 | Accessibility | Meter semantics remain exposed; focus moves to the active control; reduced motion is honored | Component/CSS inspection | Keyboard and VoiceOver smoke test |

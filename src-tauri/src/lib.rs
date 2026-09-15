@@ -1437,6 +1437,13 @@ fn refresh_tray_from_cache(app: &AppHandle) {
     let _ = update_tray_ui(app, &values);
 }
 
+/// Menu callbacks run inside AppKit's active NSMenu event. Replacing that menu before the event
+/// unwinds can abort the process on macOS, so queue the refresh for the next main-loop turn.
+fn refresh_tray_from_cache_deferred(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || refresh_tray_from_cache(&handle));
+}
+
 fn toggle_tray_quota_window(app: &AppHandle) {
     let state = app.state::<AppState>();
     state.tray_weekly_mode.fetch_xor(true, Ordering::AcqRel);
@@ -1667,6 +1674,7 @@ fn commit_preferences(
     state: &State<'_, AppState>,
     previous: &WidgetPreferences,
     next: WidgetPreferences,
+    refresh_tray: bool,
 ) -> Result<WidgetPreferences, String> {
     persist_preferences(&state.preferences_path, &next)?;
     let window = app
@@ -1689,7 +1697,9 @@ fn commit_preferences(
         .lock()
         .map_err(|_| "settings unavailable".to_string())? = next.clone();
     let _ = app.emit_to("widget", "preferences-changed", next.clone());
-    refresh_tray_from_cache(app);
+    if refresh_tray {
+        refresh_tray_from_cache(app);
+    }
     Ok(next)
 }
 
@@ -1704,7 +1714,7 @@ fn set_preferences(
         .lock()
         .map_err(|_| "settings unavailable".to_string())?
         .clone();
-    commit_preferences(&app, &state, &previous, preferences.normalized())?;
+    commit_preferences(&app, &state, &previous, preferences.normalized(), true)?;
     Ok(())
 }
 
@@ -1721,7 +1731,7 @@ fn set_widget_locked(
         .clone();
     let mut next = previous.clone();
     next.locked = locked;
-    commit_preferences(&app, &state, &previous, next)
+    commit_preferences(&app, &state, &previous, next, true)
 }
 
 #[tauri::command]
@@ -1737,7 +1747,7 @@ fn set_widget_always_on_top(
         .clone();
     let mut next = previous.clone();
     next.always_on_top = always_on_top;
-    commit_preferences(&app, &state, &previous, next)
+    commit_preferences(&app, &state, &previous, next, true)
 }
 
 #[tauri::command]
@@ -1753,7 +1763,7 @@ fn set_widget_visible(
         .clone();
     let mut next = previous.clone();
     next.widget_visible = visible;
-    commit_preferences(&app, &state, &previous, next)
+    commit_preferences(&app, &state, &previous, next, true)
 }
 
 fn update_preferences_from_tray(app: &AppHandle, mutate: impl FnOnce(&mut WidgetPreferences)) {
@@ -1764,7 +1774,9 @@ fn update_preferences_from_tray(app: &AppHandle, mutate: impl FnOnce(&mut Widget
     };
     let mut next = previous.clone();
     mutate(&mut next);
-    let _ = commit_preferences(app, &state, &previous, next.normalized());
+    if commit_preferences(app, &state, &previous, next.normalized(), false).is_ok() {
+        refresh_tray_from_cache_deferred(app);
+    }
 }
 
 fn handle_tray_menu(app: &AppHandle, id: &str) {
@@ -1813,7 +1825,7 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
             }
             .is_ok()
             {
-                refresh_tray_from_cache(app);
+                refresh_tray_from_cache_deferred(app);
             }
         }
         "quit" => app.exit(0),
