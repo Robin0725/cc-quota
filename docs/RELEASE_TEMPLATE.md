@@ -1,13 +1,12 @@
-# CC Quota 0.3.13
+# CC Quota VERSION
 
-CC is a local-first macOS menu bar quota monitor for Codex and Claude.
+CC Quota is a local-first macOS menu bar quota monitor for Codex, Claude, and Kimi Code.
 
 ## Highlights
 
-- Two provider-colored `40 × 17 pt` menu bar capsules with centered exact percentages.
-- Five bottom-edge dots for the 5-hour window, where one lit dot equals one remaining started hour.
-- Optional `100 × 100` transparent floating trigger that opens a `320 × 320` two-provider detail panel below or above it without moving the trigger.
-- 5-hour priority, explicit weekly fallback, correct 0% semantics, and last-good stale-data retention.
+- HIGHLIGHT_ONE
+- HIGHLIGHT_TWO
+- HIGHLIGHT_THREE
 
 ## Download
 
@@ -17,9 +16,10 @@ Unsigned builds may require right-clicking the app and choosing Open, or allowin
 
 ## Verification
 
-- Frontend and Rust tests passed.
+- Frontend and complete Rust tests passed.
 - TypeScript/Vite production build and Rust clippy passed.
-- Version and sensitive-content checks passed.
+- Version, high-severity dependency audit, and sensitive-content checks passed.
+- Both `x86_64` and `arm64` slices passed strict code-signature verification.
 - Final macOS smoke test passed.
 - Independent read-only review passed.
 
